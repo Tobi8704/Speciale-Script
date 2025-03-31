@@ -1,0 +1,755 @@
+---
+title: "Green Parties Analysis - Refactored"
+author: "Tobias"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Load Required Packages
+
+```{r load_packages}
+# Install pacman if not already installed
+if (!require("pacman")) install.packages("pacman")
+
+# Use pacman to load all required packages
+pacman::p_load(
+  # Data manipulation
+  dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate,
+  
+  # Visualization
+  ggplot2,
+  
+  # Statistical analysis
+  rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, lmtest, sandwich,
+  stargazer, broom, memisc, strucchange, plm,
+  
+  # Specific data sources
+  manifestoR
+)
+```
+
+## Helper Functions
+
+```{r helper_functions}
+# Function to filter European countries
+filter_european_countries <- function(data, country_col = "country_name") {
+  european_countries <- c(
+    "Austria", "Bulgaria", "Croatia", "Czech Republic", "Denmark", 
+    "Estonia", "Finland", "Germany", "Greece", "Ireland", "Italy", 
+    "Latvia", "Luxembourg", "Netherlands", "Norway", "Poland", 
+    "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", 
+    "Sweden", "Switzerland"
+  )
+  
+  filter(data, !!sym(country_col) %in% european_countries)
+}
+
+# Function to calculate Lowe's RILE score
+calculate_rile_lowe <- function(data) {
+  right_cols <- c("per104", "per201", "per203", "per305", "per401", "per402", "per407", 
+                 "per414", "per505", "per601", "per603", "per605", "per606")
+  left_cols <- c("per103", "per105", "per106", "per107", "per202", "per403", "per404", 
+                "per406", "per412", "per413", "per504", "per506", "per701")
+  
+  data %>%
+    mutate(rile_lowe = log((rowSums(select(., all_of(right_cols)) + 0.5)) / 
+                          (rowSums(select(., all_of(left_cols)) + 0.5))))
+}
+
+# Function to calculate environmental position
+calculate_env_position <- function(data) {
+  data %>%
+    mutate(
+      miljo_afhaengig = log((per416 + per501 + 0.5) / (per410 + 0.5))
+    )
+}
+
+# Function to remove duplicates based on specific columns
+remove_duplicates <- function(data, group_cols, value_col) {
+  data %>%
+    group_by(across(all_of(group_cols))) %>%
+    mutate(max_value = max({{value_col}}, na.rm = TRUE)) %>%
+    filter({{value_col}} == max_value) %>%
+    distinct(across(all_of(group_cols)), .keep_all = TRUE) %>%
+    ungroup() %>%
+    select(-max_value)
+}
+
+# Function to create standard RDD plot
+plot_rdd <- function(data, x_var, y_var, group_var, 
+                    x_limit = 10, 
+                    x_label = "Running Variable", 
+                    y_label = "Outcome", 
+                    title = "RDD Plot") {
+  ggplot(data = subset(data, {{x_var}} <= x_limit)) +
+    geom_point(aes(x = {{x_var}}, y = {{y_var}}, shape = {{group_var}}), size = 2) +
+    geom_smooth(data = subset(data, {{x_var}} < 0),
+                aes(x = {{x_var}}, y = {{y_var}}),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    geom_smooth(data = subset(data, {{x_var}} >= 0),
+                aes(x = {{x_var}}, y = {{y_var}}),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    geom_vline(xintercept = 0, linetype = 2, size = 0.6) +
+    theme_minimal() +
+    labs(title = title, x = x_label, y = y_label) +
+    theme(legend.position = 'bottom', legend.title = element_blank())
+}
+```
+
+## Data Acquisition
+
+```{r data_acquisition}
+# Load Manifesto Project Dataset
+mp_setapikey(key = "c1f14c8fb84af448bfdb511afd7f415e")
+mpds <- mp_maindataset(version = "MPDS2024a")
+
+# Load election and party data
+view_election <- read_csv("view_election.csv")
+view_party <- read_csv("view_party.csv")
+
+# Filter for European countries
+election_european <- filter_european_countries(view_election)
+party_european <- filter_european_countries(view_party)
+mpds_european <- filter_european_countries(mpds, "countryname")
+```
+
+## Data Preprocessing
+
+```{r data_preprocessing}
+# Filter for time period after 1960
+mpds_european_1960 <- mpds_european %>% filter(date > 196000)
+election_european_1960 <- election_european %>% filter(election_date > "1960-01-01")
+
+# Merge PG datasets
+pg_election_parties_european <- merge(
+  election_european_1960, 
+  party_european[, c("party_id", "cmp", "family_id", "family_name", "family_name_short")], 
+  by = "party_id", 
+  all.x = FALSE, 
+  all.y = FALSE
+)
+
+# Filter for ecological parties and parliament elections
+pg_election_parties_european_eco <- pg_election_parties_european %>%
+  filter(family_id == 19 & election_type == "parliament")
+
+# Filter ecological parties in MPDS
+mpds_european_1960_eco <- mpds_european_1960 %>% filter(parfam == "10")
+```
+
+## Data Corrections
+
+```{r data_corrections}
+# Create a correction lookup table
+party_corrections <- tribble(
+  ~party_id, ~country_name, ~cmp,
+  308,  "Switzerland",    43120,
+  1781, "Portugal",       35120,
+  2254, "Norway",         12110,
+  2651, "Austria",        42120,
+  196,  "Czech Republic", 82110,
+  219,  "Estonia",        83110
+)
+
+# Apply corrections
+pg_election_parties_european_eco <- pg_election_parties_european_eco %>%
+  rows_update(party_corrections, by = c("party_id", "country_name"))
+```
+
+## Data Merging
+
+```{r data_merging}
+# Merge MPDS and PG data for ecological parties
+mpds_pg_1960_eco <- merge(
+  mpds_european_1960_eco,
+  pg_election_parties_european_eco,
+  by.x = c("countryname", "edate", "party"),
+  by.y = c("country_name", "election_date", "cmp"), 
+  all = TRUE
+)
+
+# Select relevant columns
+mpds_european_1960_eco_reduced <- mpds_pg_1960_eco %>%
+  select(
+    countryname, edate, party, oecdmember, eumember, 
+    date, partyname, party_name, partyabbrev, party_name_short, 
+    parfam, pervote, rile, absseat, seats, party_id, vote_share
+  )
+```
+
+## Import and Process Threshold Data
+
+```{r threshold_data}
+# Import threshold data
+samlede_thresholds <- read_delim(
+  "Samlede Thresholds.csv", 
+  delim = ";", 
+  escape_double = FALSE, 
+  locale = locale(decimal_mark = ",", grouping_mark = "."), 
+  trim_ws = TRUE
+) %>% 
+  mutate(edate = dmy(edate))  # Convert to date format
+
+# Prepare threshold data for merging
+samlede_thresholds_sub <- samlede_thresholds %>%
+  select(country, edate, threshold, threshold_lagged)
+
+# Merge threshold data with MPDS data
+mpds_european_1960 <- merge(
+  mpds_european_1960,
+  samlede_thresholds_sub,
+  by = c("country", "edate"),
+  all.x = FALSE
+)
+
+# Calculate average vote share for mainstream parties
+mpds_european_1960 <- mpds_european_1960 %>% 
+  group_by(party) %>% 
+  mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  filter(avg_pervote_main >= 10)  # Keep only mainstream parties with >=10% avg
+```
+
+## Add Ecological Vote Percentages
+
+```{r eco_votes}
+# Import additional ecological vote data
+eco_votes_additional <- read_delim(
+  "mpds_pg_1960_eco_færdig_tilføjelse_af_ekstra_votes.csv", 
+  delim = ";", 
+  escape_double = FALSE, 
+  col_types = cols(avg_vote_share = col_double()), 
+  locale = locale(decimal_mark = ",", grouping_mark = "."), 
+  trim_ws = TRUE
+) %>%
+  mutate(edate = as.Date(edate, format = "%d-%m-%Y")) %>%
+  mutate(edate = format(edate, "%Y/%m/%d"))
+
+# Select relevant columns
+eco_votes_sub <- eco_votes_additional %>%
+  select(
+    countryname, edate, pervote_samlet, lagged_pervote_samlet, 
+    i_parlament, lagged_i_parlament
+  )
+
+# Merge with main dataset
+mpds_european_1960_final <- merge(
+  mpds_european_1960,
+  eco_votes_sub,
+  by = c("countryname", "edate"),
+  all.x = FALSE
+)
+
+# Calculate Lowe's RILE score
+mpds_european_1960_final <- calculate_rile_lowe(mpds_european_1960_final)
+
+# Select relevant columns for final dataset
+mpds_european_1960_final <- mpds_european_1960_final %>%
+  select(
+    countryname, edate, country, party, oecdmember, eumember, date, 
+    partyname, partyabbrev, parfam, absseat, per410, per416, per501, 
+    threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet, 
+    i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe
+  )
+
+# Remove duplicates
+mpds_european_1960_final <- remove_duplicates(
+  mpds_european_1960_final, 
+  c("countryname", "edate", "party"),
+  pervote_samlet
+)
+```
+
+## Calculate Derived Variables
+
+```{r derived_variables}
+# Convert vote percentages to numeric
+mpds_european_1960_final <- mpds_european_1960_final %>%
+  mutate(
+    pervote_samlet = as.numeric(pervote_samlet),
+    lagged_pervote_samlet = as.numeric(lagged_pervote_samlet),
+    
+    # Calculate centered vote shares
+    centered_pervote_samlet = pervote_samlet - threshold,
+    centered_lagged_pervote_samlet = lagged_pervote_samlet - threshold_lagged,
+    
+    # Calculate dependent environmental variable
+    miljo_afhaengig = log((per416 + per501 + 0.5) / (per410 + 0.5))
+  )
+
+# Calculate first difference of dependent variable
+mpds_european_1960_final <- mpds_european_1960_final %>% 
+  arrange(party, edate) %>%
+  group_by(party) %>% 
+  mutate(miljo_afhaengig_fd = miljo_afhaengig - lag(miljo_afhaengig)) %>% 
+  ungroup()
+
+# Create factor variables for parliament status
+mpds_european_1960_final <- mpds_european_1960_final %>%
+  mutate(
+    factor_lagged_i_parlament = factor(
+      lagged_i_parlament, 
+      levels = c(0, 1), 
+      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+    ),
+    factor_i_parlament = factor(
+      i_parlament, 
+      levels = c(0, 1), 
+      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+    )
+  )
+```
+
+## Visualization and Analysis
+
+```{r visualization}
+# Create RDD plot for environmental position
+rdd_plot <- plot_rdd(
+  data = mpds_european_1960_final,
+  x_var = centered_lagged_pervote_samlet,
+  y_var = miljo_afhaengig,
+  group_var = factor_lagged_i_parlament,
+  x_limit = 10,
+  x_label = "Green Parties Vote Share (Centered at Threshold)",
+  y_label = "Environmental Position",
+  title = "RDD Plot: Effect of Parliament Threshold on Environmental Position"
+)
+
+print(rdd_plot)
+
+# Create histogram of vote shares by parliament status
+hist_plot <- ggplot(
+  mpds_european_1960_final, 
+  aes(x = centered_lagged_pervote_samlet, fill = factor_lagged_i_parlament)
+) +
+  geom_histogram(position = "dodge", bins = 20) +
+  labs(
+    x = "Centered Vote Share", 
+    y = "Count", 
+    fill = "Parliament Status",
+    title = "Distribution of Vote Shares Relative to Threshold"
+  ) +
+  theme_minimal()
+
+print(hist_plot)
+```
+
+## Regression Analysis
+
+```{r regression}
+# Simple linear model
+model_simple <- lm(
+  miljo_afhaengig ~ centered_lagged_pervote_samlet + lagged_i_parlament,
+  data = mpds_european_1960_final
+)
+
+# Display model results
+summary(model_simple)
+tidy(model_simple)
+
+# RDD analysis
+rdd_result <- rdrobust(
+  y = mpds_european_1960_final$miljo_afhaengig,
+  x = mpds_european_1960_final$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+
+summary(rdd_result)
+```
+
+
+# Source custom functions
+source("gp_rdd_funktioner.R")
+
+# ===== DATA PREPARATION =====
+# Clean data - remove missing values for analysis
+data_clean <- na.omit(mpds_europæiske_1960_færdig)
+
+# ===== PART 1: BASELINE MODELS =====
+# --- 1.1 Base Linear Model ---
+model_base <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                 data = mpds_europæiske_1960_færdig)
+
+data_used <- as.data.frame(mpds_europæiske_1960_færdig[rownames(model_base$model), ])
+
+# Robust standard errors clustered by party
+resultat <- coeftest.cluster_grøn(data = data_used,
+                             fm = model_base,
+                             cluster1 = "party")
+print(resultat)
+
+# Robust standard errors clustered by party and election date
+summary_model <- summary.cluster_grøn(obj = model_base, 
+                                 data = data_used, 
+                                 cluster1 = "party", 
+                                 cluster2 = "edate")
+print(summary_model)
+
+# --- 1.2 Instrumental Variable Approach ---
+model_iv <- ivreg(miljø_afhængig ~ lagged_i_parlament | centered_lagged_pervote_samlet, 
+                  data = mpds_europæiske_1960_færdig)
+summary(model_iv, diagnostics = TRUE)
+
+# --- 1.3 RDD Base Analysis ---
+rd.multic_grøn <- rd.base_grøn(
+  data = mpds_europæiske_1960_færdig,
+  force.var = 'centered_lagged_pervote_samlet',
+  yvar = 'miljø_afhængig',
+  seat.identifier = 'factor_lagged_i_parlament',
+  fixed.effects = 'country',
+  clust1 = 'party',
+  clust2 = 'edate',
+  polynomials = c(1, 2, 3, 4),
+  bws = NULL
+)
+print(rd.multic_grøn)
+
+# ===== PART 2: COMPREHENSIVE RDD ANALYSIS =====
+# --- 2.1 Configuration ---
+# Bandwidths to test
+bw_list <- c(1, 1.5, 2, 2.5, 3)
+# Polynomial orders to test
+polynomials <- c(1, 2, 3, 4)
+# Empty list for results
+all_results <- list()
+
+# --- 2.2 Function for RDD Analysis ---
+run_rdrobust_analysis <- function(data, p, bw = NULL, interaction = FALSE) {
+  # Base covariates
+  base_covs <- cbind(
+    data$country,
+    data$edate,
+    data$lagged_i_parlament
+  )
+  
+  # Add interaction term if requested
+  if(interaction) {
+    covs <- cbind(
+      base_covs,
+      data$rile_lowe,
+      data$rile_lowe * data$lagged_i_parlament
+    )
+  } else {
+    covs <- base_covs
+  }
+  
+  # Run RD analysis
+  rd <- rdrobust(
+    y = data$miljø_afhængig,
+    x = data$centered_lagged_pervote_samlet,
+    c = 0,
+    p = p,
+    h = bw,
+    covs = covs
+  )
+  
+  return(rd)
+}
+
+# --- 2.3 Run Analyses for Different Specifications ---
+for (p in polynomials) {
+  if (p <= 2) {
+    # Local polynomial with fixed bandwidths
+    for (bw in bw_list) {
+      # Original model
+      rd_original <- run_rdrobust_analysis(data_clean, p, bw, interaction = FALSE)
+      
+      # Model with interaction
+      rd_interaction <- run_rdrobust_analysis(data_clean, p, bw, interaction = TRUE)
+      
+      # Compile results
+      tmp <- data.frame(
+        Model = c("Original", "With Interaction"),
+        Bandwidth = bw,
+        Polynomial = p,
+        LATE = formatC(c(rd_original$Estimate[1], rd_interaction$Estimate[1]), format = "f", digits = 4),
+        StdErr = formatC(c(rd_original$se[1], rd_interaction$se[1]), format = "f", digits = 4),
+        p_value = formatC(c(rd_original$pv[1], rd_interaction$pv[1]), format = "f", digits = 4),
+        N_left_of_c = c(rd_original$N_h[1], rd_interaction$N_h[1]),
+        N_right_of_c = c(rd_original$N_h[2], rd_interaction$N_h[2])
+      )
+      
+      # Add significance stars
+      tmp$p_value_star <- paste0(
+        tmp$p_value,
+        ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+               ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                      ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+      )
+      
+      all_results[[paste0("p", p, "_bw", bw)]] <- tmp
+    }
+  } else {
+    # Global polynomial (automatically selected bandwidth)
+    rd_original <- run_rdrobust_analysis(data_clean, p, NULL, interaction = FALSE)
+    rd_interaction <- run_rdrobust_analysis(data_clean, p, NULL, interaction = TRUE)
+    
+    tmp <- data.frame(
+      Model = c("Original", "With Interaction"),
+      Bandwidth = NA,
+      Polynomial = p,
+      LATE = formatC(c(rd_original$Estimate[1], rd_interaction$Estimate[1]), format = "f", digits = 4),
+      StdErr = formatC(c(rd_original$se[1], rd_interaction$se[1]), format = "f", digits = 4),
+      p_value = formatC(c(rd_original$pv[1], rd_interaction$pv[1]), format = "f", digits = 4),
+      N_left_of_c = c(rd_original$N_h[1], rd_interaction$N_h[1]),
+      N_right_of_c = c(rd_original$N_h[2], rd_interaction$N_h[2])
+    )
+    
+    # Add significance stars
+    tmp$p_value_star <- paste0(
+      tmp$p_value,
+      ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+             ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                    ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+    )
+    
+    all_results[[paste0("p", p, "_global")]] <- tmp
+  }
+}
+
+# Combine results
+results_df <- do.call(rbind, all_results)
+print(results_df)
+
+# ===== PART 3: SUBSAMPLE ANALYSIS FOR LEFT PARTIES =====
+# Filter data for left-oriented parties (assuming lower rile_lowe = more left-oriented)
+left_parties <- data_clean[data_clean$rile_lowe < median(data_clean$rile_lowe, na.rm = TRUE), ]
+
+# Run RDD on left parties subsample
+rd_left_only <- rdrobust(
+  y = left_parties$miljø_afhængig,
+  x = left_parties$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 2,
+  h = 2,
+  covs = cbind(
+    left_parties$country,
+    left_parties$edate,
+    left_parties$lagged_i_parlament
+  )
+)
+summary(rd_left_only)
+
+# ===== PART 4: ROBUSTNESS CHECKS =====
+# --- 4.1 Placebo Tests ---
+placebo_cutpoints <- c(2, 5, 7)
+placebo_results <- list()
+
+for (cp in placebo_cutpoints) {
+  rd <- rdrobust(
+    y = data_clean$miljø_afhængig,
+    x = data_clean$centered_lagged_pervote_samlet,
+    c = cp,
+    p = 1,
+    h = 2,
+    covs = cbind(
+      data_clean$country,
+      data_clean$edate,
+      data_clean$lagged_i_parlament
+    )
+  )
+  
+  placebo_results[[paste0("cp_", cp)]] <- data.frame(
+    cutoff = cp,
+    estimate = rd$Estimate[1],
+    std_err = rd$se[1],
+    p_value = rd$pv[1],
+    n_left = rd$N_h[1],
+    n_right = rd$N_h[2]
+  )
+}
+
+# Combine placebo results
+placebo_df <- do.call(rbind, placebo_results)
+print(placebo_df)
+
+# --- 4.2 McCrary Density Test ---
+density_test <- rddensity(X = mpds_europæiske_1960_færdig$centered_lagged_pervote_samlet, c = 0)
+summary(density_test)
+
+# --- 4.3 Bandwidth Selection ---
+bw_selection <- rdbwselect(
+  y = mpds_europæiske_1960_færdig$miljø_afhængig, 
+  x = mpds_europæiske_1960_færdig$centered_lagged_pervote_samlet, 
+  c = 0
+)
+summary(bw_selection)
+
+# ===== PART 5: VISUALIZATIONS =====
+# --- 5.1 Main RDD Plot ---
+p1_grøn <- jump.plot_grøn(
+  data = subset(mpds_europæiske_1960_færdig, centered_lagged_pervote_samlet <= 10),
+  force.var = 'centered_lagged_pervote_samlet',
+  yvar = 'miljø_afhængig',
+  seat.identifier = 'factor_lagged_i_parlament',
+  polynomial = 3
+)
+print(p1_grøn)
+
+# --- 5.2 Focused RDD Plot (Zoomed to [-2, 2]) ---
+jump.plot.cutoff <- function(data, force.var, yvar, seat.identifier, polynomial) {
+  # Select relevant variables and remove NAs
+  data <- data[, c(force.var, yvar, seat.identifier)]
+  data <- na.omit(data)
+  
+  p <- ggplot() +
+    geom_point(data = data,
+               aes_string(x = force.var, y = yvar, shape = seat.identifier),
+               size = 2) +
+    geom_smooth(data = subset(data, data[, force.var] < 0),
+                aes_string(x = force.var, y = yvar),
+                method = 'lm',
+                formula = y ~ poly(x, polynomial, raw = TRUE),
+                linetype = 1,
+                color = 'black',
+                size = 1) +
+    geom_smooth(data = subset(data, data[, force.var] >= 0),
+                aes_string(x = force.var, y = yvar),
+                method = 'lm',
+                formula = y ~ poly(x, polynomial, raw = TRUE),
+                linetype = 1,
+                color = 'black',
+                size = 1) +
+    scale_x_continuous(name = 'Vote Share of Green Parties',
+                       limits = c(-2, 2),
+                       breaks = seq(-2, 2, 0.5)) +
+    scale_y_continuous(name = 'Focus on Environment',
+                       limits = c(-8, 8),
+                       breaks = seq(-8, 8, 4)) +
+    scale_shape_manual(values = c(1, 19),
+                       labels = c('Green Parties w/o seats', 'Green Parties w seat(s)')) +
+    geom_vline(xintercept = 0, linetype = 2, size = 0.6) +
+    theme_minimal() +
+    theme(legend.position = 'bottom', legend.title = element_blank())
+  
+  return(p)
+}
+
+p_cutoff <- jump.plot.cutoff(
+  data = subset(mpds_europæiske_1960_færdig, 
+                centered_lagged_pervote_samlet >= -2 & centered_lagged_pervote_samlet <= 2),
+  force.var = 'centered_lagged_pervote_samlet',
+  yvar = 'miljø_afhængig',
+  seat.identifier = 'factor_lagged_i_parlament',
+  polynomial = 3
+)
+print(p_cutoff)
+
+# --- 5.3 Interaction Plot ---
+plot_interaction <- ggplot(data_clean, 
+                          aes(x = centered_lagged_pervote_samlet, 
+                              y = miljø_afhængig,
+                              color = factor(lagged_i_parlament))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Interaction between Parliament Status and Vote Share",
+    x = "Vote Percentage (centered around threshold)",
+    y = "Environmental Policy Focus",
+    color = "In Parliament (lagged)"
+  ) +
+  theme_minimal()
+print(plot_interaction)
+
+# --- 5.4 Outcome Distribution ---
+hist_plot <- ggplot(mpds_europæiske_1960_færdig, aes(x = miljø_afhængig)) +
+  geom_histogram(binwidth = 0.1, fill = "steelblue", color = "black") +
+  labs(title = "Distribution of Outcome Variable", 
+       x = "Environmental Policy Focus", 
+       y = "Number of Observations") +
+  theme_minimal()
+print(hist_plot)
+
+# --- 5.5 Density Plot ---
+rddensity_plot <- rdplotdensity(
+  density_test, 
+  X = mpds_europæiske_1960_færdig$centered_lagged_pervote_samlet
+)
+
+density_hist <- ggplot(mpds_europæiske_1960_færdig, aes(x=centered_lagged_pervote_samlet)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(alpha=.2, fill="#FF6666") +
+  labs(title = "Distribution of Running Variable",
+       x = "Vote Share (centered)",
+       y = "Density") +
+  theme_minimal()
+print(density_hist)
+
+# --- 5.6 Placebo Visualization ---
+# Example for one placebo cutoff
+placebo_cutoff <- 7
+
+# Create indicator for 'left' vs 'right' of cutpoint
+data_clean$D <- ifelse(data_clean$centered_lagged_pervote_samlet < placebo_cutoff, 0, 1)
+
+placebo_plot <- ggplot(data_clean, 
+                      aes(x = centered_lagged_pervote_samlet, y = miljø_afhængig)) +
+  geom_point(alpha = 0.4) +
+  geom_vline(xintercept = placebo_cutoff, color = "red", linetype = "dashed") +
+  stat_smooth(
+    data = subset(data_clean, D == 0),
+    method = "lm",
+    formula = y ~ poly(x, 1),
+    color = "blue"
+  ) +
+  stat_smooth(
+    data = subset(data_clean, D == 1),
+    method = "lm",
+    formula = y ~ poly(x, 1),
+    color = "blue"
+  ) +
+  theme_minimal() +
+  labs(title = paste0("Placebo Check at x=", placebo_cutoff),
+       x = "Vote Share (centered)",
+       y = "Environmental Policy Focus")
+print(placebo_plot)
+
+# ===== PART 6: ADDITIONAL RDD APPROACHES =====
+# --- 6.1 RDD with rdd package ---
+rdd_data <- rdd_data(
+  y = mpds_europæiske_1960_færdig$miljø_afhængig,
+  x = mpds_europæiske_1960_færdig$centered_lagged_pervote_samlet,
+  cutpoint = 0
+)
+
+rdd_model <- rdd_reg_lm(rdd_object = rdd_data)
+summary(rdd_model)
+plot(rdd_model)
+
+# --- 6.2 Simple Linear Models ---
+# Overall sample
+reg <- lm(miljø_afhængig ~ factor_lagged_i_parlament + centered_lagged_pervote_samlet, 
+          data = mpds_europæiske_1960_færdig, 
+          na.action = na.omit)
+
+stargazer(reg, 
+          type = "text", 
+          dep.var.labels = ("Environmental Policy Focus"),
+          column.labels = c(""),
+          covariate.labels = c("Treatment", "Green Parties Vote Share"),
+          omit.stat = "all", 
+          digits = 2)
+
+# Left-wing parties subsample
+mpds_venstre <- subset(mpds_europæiske_1960_færdig, rile_lowe < 0)
+
+reg_left <- lm(miljø_afhængig ~ factor_lagged_i_parlament + centered_lagged_pervote_samlet, 
+              data = mpds_venstre, 
+              na.action = na.omit)
+
+stargazer(reg_left, 
+          type = "text", 
+          dep.var.labels = ("Environmental Policy Focus"),
+          column.labels = c(""),
+          covariate.labels = c("Treatment", "Green Parties Vote Share"),
+          omit.stat = "all", 
+          digits = 2)
