@@ -1,0 +1,1776 @@
+---
+title: "Green Party Parliamentary Representation and Climate Policy"
+author: "Tobias"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# 1. Setup and Data Preparation
+
+## 1.1 Package Installation and Loading
+
+```{r package_installation}
+# Install pacman if not already installed
+if (!require("pacman")) install.packages("pacman")
+
+# Use pacman to load all required packages
+pacman::p_load(
+  # Data manipulation
+  dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate,
+  
+  # Visualization
+  ggplot2,
+  
+  # Statistical analysis
+  rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, ivreg,
+  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm,
+  
+  # Specific data sources
+  manifestoR
+)
+
+# Load custom RDD functions if available
+if (file.exists("gp_rdd_funktioner.R")) {
+  source("gp_rdd_funktioner.R")
+}
+```
+
+## 1.2 Helper Functions
+
+```{r helper_functions}
+# Function to filter European countries
+filter_european_countries <- function(data, country_col = "country_name") {
+  european_countries <- c(
+    "Austria", "Bulgaria", "Croatia", "Czech Republic", "Denmark", 
+    "Estonia", "Finland", "Germany", "Greece", "Ireland", "Italy", 
+    "Latvia", "Luxembourg", "Netherlands", "Norway", "Poland", 
+    "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", 
+    "Sweden", "Switzerland"
+  )
+  
+  filter(data, !!sym(country_col) %in% european_countries)
+}
+
+# Funktion til at udføre robusthedstest med forskellige båndbredder
+run_rdd_robustness <- function(data, 
+                              outcome_var = "miljø_afhængig",
+                              running_var = "centered_lagged_pervote_samlet", 
+                              bw_list = c(1, 1.5, 2, 2.5, 3),
+                              polynomials = c(1, 2, 3, 4),
+                              cutpoint = 0,
+                              covariates = NULL,
+                              group_label = "") {
+  
+  # Tom liste til resultater
+  all_results <- list()
+  
+  # Håndtering af kovariater
+  if (!is.null(covariates)) {
+    # Opret kovariat-matrix på forhånd
+    covs_matrix <- NULL
+    if (length(covariates) > 0) {
+      # Forsøg at bygge kovariat-matrix manuelt
+      covs_list <- list()
+      for (i in 1:length(covariates)) {
+        col_name <- covariates[i]
+        if (col_name %in% names(data)) {
+          covs_list[[i]] <- data[[col_name]]
+        } else {
+          warning(paste("Kolonne", col_name, "findes ikke i datasættet."))
+          covs_list[[i]] <- NULL
+        }
+      }
+      # Fjern NULL værdier
+      covs_list <- covs_list[!sapply(covs_list, is.null)]
+      
+      # Hvis der er nogen kovariater tilbage, lav en matrix
+      if (length(covs_list) > 0) {
+        covs_matrix <- do.call(cbind, covs_list)
+      }
+    }
+  } else {
+    covs_matrix <- NULL
+  }
+  
+  # Loop over polynomier
+  for (p in polynomials) {
+    
+    # HVIS p <= 2, laver vi 'ikke-parametrisk' med faste båndbredder
+    if (p <= 2) {
+      
+      # Loop over båndbredder
+      for (bw in bw_list) {
+        # Prøv at køre rdrobust med fejlhåndtering
+        tryCatch({
+          # Kør rdrobust uden kovariater
+          if (is.null(covs_matrix)) {
+            rd <- rdrobust(
+              y = data[[outcome_var]],
+              x = data[[running_var]],
+              c = cutpoint,
+              p = p,
+              h = bw
+            )
+          } else {
+            # Kør rdrobust med kovariater
+            rd <- rdrobust(
+              y = data[[outcome_var]],
+              x = data[[running_var]],
+              c = cutpoint,
+              p = p,
+              h = bw,
+              covs = covs_matrix
+            )
+          }
+          
+          # Gem KUN conventional-estimatet: [1]
+          tmp <- data.frame(
+            Bandwidth    = bw,
+            Polynomial   = p,
+            LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
+            StdErr       = formatC(rd$se[1], format = "f", digits = 4),
+            p_value      = formatC(rd$pv[1], format = "f", digits = 4),
+            N_left_of_c  = rd$N_h[1],
+            N_right_of_c = rd$N_h[2]
+          )
+          
+          # Tilføj en kolonne med p-værdi-stjerner
+          tmp$p_value_star <- paste0(
+            tmp$p_value,
+            ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+                   ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                          ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+          )
+          
+          # Læg i listen over resultater
+          all_results[[paste0("p", p, "_bw", bw)]] <- tmp
+          
+        }, error = function(e) {
+          warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og bw =", bw, ":", e$message))
+        })
+      }
+      
+    } else {
+      # HVIS p > 2, laver vi "global" og sætter h = NULL (eller en meget stor værdi)
+      tryCatch({
+        # Kør rdrobust uden kovariater
+        if (is.null(covs_matrix)) {
+          rd <- rdrobust(
+            y = data[[outcome_var]],
+            x = data[[running_var]],
+            c = cutpoint,
+            p = p,
+            h = NULL   # lader rdrobust selv vælge båndbredde
+          )
+        } else {
+          # Kør rdrobust med kovariater
+          rd <- rdrobust(
+            y = data[[outcome_var]],
+            x = data[[running_var]],
+            c = cutpoint,
+            p = p,
+            h = NULL,   # lader rdrobust selv vælge båndbredde
+            covs = covs_matrix
+          )
+        }
+        
+        # Gem KUN conventional-estimatet: [1]
+        tmp <- data.frame(
+          Bandwidth    = NA,  # "Global" => ingen fastsat h
+          Polynomial   = p,
+          LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
+          StdErr       = formatC(rd$se[1], format = "f", digits = 4),
+          p_value      = formatC(rd$pv[1], format = "f", digits = 4),
+          N_left_of_c  = rd$N_h[1],
+          N_right_of_c = rd$N_h[2]
+        )
+        
+        # Tilføj en kolonne med p-værdi-stjerner
+        tmp$p_value_star <- paste0(
+          tmp$p_value,
+          ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+                 ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                        ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+        )
+        
+        # Læg i listen
+        all_results[[paste0("p", p, "_global")]] <- tmp
+        
+      }, error = function(e) {
+        warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og global båndbredde:", e$message))
+      })
+    }
+  }
+  
+  # Bind alle resultaterne sammen, men tjek at vi har nogle resultater
+  if (length(all_results) > 0) {
+    results_df <- do.call(rbind, all_results)
+    
+    # Tilføj en kolonne med gruppelabel, hvis angivet
+    if (group_label != "") {
+      results_df$Group <- group_label
+    }
+    
+    return(results_df)
+  } else {
+    warning("Ingen resultater produceret. Tjek data og parametre.")
+    return(NULL)
+  }
+}
+
+
+
+# Function to calculate Lowe's RILE score
+calculate_rile_lowe <- function(data) {
+  right_cols <- c("per104", "per201", "per203", "per305", "per401", "per402", "per407", 
+                 "per414", "per505", "per601", "per603", "per605", "per606")
+  left_cols <- c("per103", "per105", "per106", "per107", "per202", "per403", "per404", 
+                "per406", "per412", "per413", "per504", "per506", "per701")
+  
+  # Debug: Identify missing columns
+  missing_right <- right_cols[!right_cols %in% names(data)]
+  missing_left <- left_cols[!left_cols %in% names(data)]
+  print(paste("Missing right columns:", paste(missing_right, collapse=", ")))
+  print(paste("Missing left columns:", paste(missing_left, collapse=", ")))
+  
+  # Filter to only include columns that exist in the dataset
+  right_cols_exist <- right_cols[right_cols %in% names(data)]
+  left_cols_exist <- left_cols[left_cols %in% names(data)]
+  
+  # Calculate RILE score
+  data %>%
+    mutate(rile_lowe = log((rowSums(dplyr::select(., dplyr::all_of(right_cols_exist)) + 0.5)) / 
+                          (rowSums(dplyr::select(., dplyr::all_of(left_cols_exist)) + 0.5))))
+}
+
+# Function to calculate environmental position
+calculate_env_position <- function(data) {
+  data %>%
+    mutate(
+      miljø_afhængig = log((per416 + per501 + 0.5) / (per410 + 0.5))
+    )
+}
+
+# Function to remove duplicates based on specific columns
+remove_duplicates <- function(data, group_cols, value_col) {
+  data %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
+    dplyr::mutate(max_value = max({{value_col}}, na.rm = TRUE)) %>%
+    dplyr::filter({{value_col}} == max_value) %>%
+    dplyr::distinct(dplyr::across(dplyr::all_of(group_cols)), .keep_all = TRUE) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(-"max_value")  # Change to this or the alternate option below
+}
+
+# Function to create standard RDD plot
+plot_rdd <- function(data, x_var, y_var, group_var, 
+                    x_limit = 10, 
+                    x_label = "Running Variable", 
+                    y_label = "Outcome", 
+                    title = "RDD Plot") {
+  # Ensure x_var, y_var, and group_var are treated as strings (column names)
+  ggplot(data = subset(data, data[[x_var]] <= x_limit)) +
+    geom_point(aes(x = .data[[x_var]], y = .data[[y_var]], shape = .data[[group_var]]), size = 2) +
+    geom_smooth(data = subset(data, data[[x_var]] < 0),
+                aes(x = .data[[x_var]], y = .data[[y_var]]),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    geom_smooth(data = subset(data, data[[x_var]] >= 0),
+                aes(x = .data[[x_var]], y = .data[[y_var]]),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    scale_shape_manual(values = c(1, 16)) +  # 1 = tom cirkel, 16 = fyldt cirkel
+    geom_vline(xintercept = 0, linetype = 2, size = .6) +
+    xlim(-5, x_limit) +  # Sætter x-aksens grænser
+    theme_minimal() +
+    labs(title = title, x = x_label, y = y_label) +
+    theme(legend.position = 'bottom', legend.title = element_blank())
+}
+
+# Run RDD analysis with multiple specifications
+run_rdrobust_analysis <- function(data, p, bw = NULL, interaction_var = NULL) {
+  # Base covariates
+  base_covs <- cbind(
+    as.numeric(factor(data$country)),
+    as.numeric(factor(data$edate))
+  )
+  
+  # Add interaction term if provided
+  if(!is.null(interaction_var)) {
+    covs <- cbind(
+      base_covs,
+      data[[interaction_var]],
+      data[[interaction_var]] * data$lagged_i_parlament
+    )
+  } else {
+    covs <- base_covs
+  }
+  
+  # Run RD analysis
+  rd <- rdrobust(
+    y = data$miljø_afhængig,
+    x = data$centered_lagged_pervote_samlet,
+    c = 0,
+    p = p,
+    h = bw,
+    covs = covs
+  )
+  
+  return(rd)
+}
+
+# Function for zoomed-in RDD plots
+jump_plot_cutoff <- function(data, force_var, y_var, group_var, polynomial=1, window=2) {
+  # Select data within window
+  plot_data <- subset(data, abs(data[[force_var]]) <= window)
+  
+  # Create plot
+  p <- ggplot() +
+    geom_point(data = plot_data,
+              aes_string(x = force_var, y = y_var, shape = group_var),
+              size = 2) +
+    geom_smooth(data = subset(plot_data, plot_data[[force_var]] < 0),
+                aes_string(x = force_var, y = y_var),
+                method = 'lm',
+                formula = y ~ poly(x, polynomial, raw = TRUE),
+                linetype = 1,
+                color = 'black',
+                size = 1) +
+    geom_smooth(data = subset(plot_data, plot_data[[force_var]] >= 0),
+                aes_string(x = force_var, y = y_var),
+                method = 'lm',
+                formula = y ~ poly(x, polynomial, raw = TRUE),
+                linetype = 1,
+                color = 'black',
+                size = 1) +
+    scale_x_continuous(name = 'Green Party Vote Share (centered)',
+                     limits = c(-window, window),
+                     breaks = seq(-window, window, window/2)) +
+    geom_vline(xintercept = 0, linetype = 2, size = 0.6) +
+    theme_minimal() +
+    theme(legend.position = 'bottom', legend.title = element_blank()) +
+    labs(title = paste0("RDD Plot (Window = ±", window, ")"),
+         y = "Climate Position")
+  
+  return(p)
+}
+```
+
+## 1.3 Data Acquisition
+
+```{r data_acquisition, warning=FALSE}
+# Load Manifesto Project Dataset
+mp_setapikey(key = "c1f14c8fb84af448bfdb511afd7f415e")
+mpds <- mp_maindataset(version = "MPDS2024a")
+
+# Load election and party data
+view_election <- read_csv("view_election.csv")
+view_party <- read_csv("view_party.csv")
+
+# GDP Per Capita
+gdp_per_capita <- read_delim("gdp_per_capita.csv", 
+     delim = ";", escape_double = FALSE, col_types = cols(GDP_per_capita = col_number()), 
+     locale = locale(decimal_mark = ",", grouping_mark = "."), 
+     trim_ws = TRUE)
+#View(gdp_per_capita)
+
+gdp_per_capita_growth <- read_delim("gdp_per_capita_growth.csv", 
+     delim = ";", escape_double = FALSE, col_types = cols(GDP_per_capita = col_number()), 
+     locale = locale(decimal_mark = ",", grouping_mark = "."), 
+     trim_ws = TRUE)
+
+inflation_consumer_prices <- read_delim("inflation-consumer_prices.csv", 
+    delim = ";", escape_double = FALSE, col_types = cols(`Inflation-consumer prices` = col_number()), 
+    locale = locale(decimal_mark = ",", grouping_mark = "."), 
+    trim_ws = TRUE)
+
+unemployment <- read_delim("unemployment.csv", 
+     delim = ";", escape_double = FALSE, col_types = cols(GDP_per_capita = col_number()), 
+     locale = locale(decimal_mark = ",", grouping_mark = "."), 
+     trim_ws = TRUE)
+
+
+# Filter for European countries
+election_european <- filter_european_countries(view_election)
+party_european <- filter_european_countries(view_party)
+mpds_european <- filter_european_countries(mpds, "countryname")
+
+# Subsetting to post-1960 data
+mpds_european_1960 <- filter(mpds_european, date > 196000)
+pg_election_all <- filter(election_european, election_date > "1960-01-01")
+pg_parties_all <- party_european  # No date filtering needed
+```
+
+## 1.4 Data Integration and Preprocessing
+
+```{r data_processing}
+# Merge party and election data
+pg_election_parties_europa <- merge(
+  pg_election_all, 
+  pg_parties_all[, c("party_id", "cmp", "family_id", "family_name", "family_name_short")], 
+  by = "party_id", 
+  all.x = FALSE, 
+  all.y = FALSE
+)
+
+# Filter to ecology/green parties (family_id = 19) in parliamentary elections
+pg_election_parties_europa_eco <- filter(
+  pg_election_parties_europa, 
+  family_id == 19 & election_type == "parliament"
+)
+
+# Filter to ecological parties in Manifesto data
+mpds_european_1960_eco <- filter(mpds_european_1960, parfam == "10")
+
+# Create a correction lookup table for Green parties
+party_corrections <- tribble(
+  ~party_id, ~country_name, ~cmp,
+  308,  "Switzerland",    43120,
+  1781, "Portugal",       35120,
+  2254, "Norway",         12110,
+  2651, "Austria",        42120,
+  196,  "Czech Republic", 82110,
+  219,  "Estonia",        83110
+)
+
+# Apply corrections to green party data
+pg_election_parties_europa_eco <- pg_election_parties_europa_eco %>%
+  rows_update(party_corrections, by = c("party_id", "country_name"))
+
+# Merge manifesto data with party-election data for green parties
+mpds_pg_1960_eco <- merge(
+  mpds_european_1960_eco,
+  pg_election_parties_europa_eco,
+  by.x = c("countryname", "edate", "party"),
+  by.y = c("country_name", "election_date", "cmp"),
+  all = TRUE
+)
+```
+
+## 1.5 Electoral Thresholds and Party Size
+
+```{r thresholds_and_party_size}
+# Import electoral threshold data
+samlede_thresholds <- read_delim("Samlede Thresholds.csv", 
+    delim = ";", 
+    escape_double = FALSE, 
+    locale = locale(decimal_mark = ",", grouping_mark = "."), 
+    trim_ws = TRUE) %>%
+  mutate(edate = dmy(edate))  # Convert to date format
+#View(samlede_thresholds)
+print(names(samlede_thresholds))
+
+# Select relevant threshold columns
+samlede_thresholds_sub <- samlede_thresholds %>%
+  dplyr::select(country, edate, threshold, threshold_lagged)
+
+# Merge thresholds with main manifesto dataset
+mpds_european_1960 <- merge(
+  mpds_european_1960,
+  samlede_thresholds_sub,
+  by = c("country", "edate"),
+  all.x = FALSE
+)
+
+# Calculate average vote share and filter to mainstream parties (>=10% avg)
+mpds_european_1960 <- mpds_european_1960 %>% 
+  group_by(party) %>% 
+  mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  filter(avg_pervote_main >= 10)
+```
+
+## 1.6 Green Party Parliament Presence and Vote Share
+
+```{r green_party_data}
+# Import green party vote share and parliament data
+green_party_data <- read_delim(
+  "mpds_pg_1960_eco_færdig_tilføjelse_af_ekstra_votes.csv", 
+  delim = ";", 
+  escape_double = FALSE, 
+  col_types = cols(avg_vote_share = col_double()), 
+  locale = locale(decimal_mark = ",", grouping_mark = "."), 
+  trim_ws = TRUE
+) %>%
+  mutate(
+    edate = as.Date(edate, format = "%d-%m-%Y"),
+    edate = format(edate, "%Y/%m/%d")
+  )
+
+
+# Select relevant green party columns
+green_party_data_sub <- green_party_data[
+  , c("countryname", "edate", "pervote_samlet", "lagged_pervote_samlet", "i_parlament", "lagged_i_parlament")
+]
+
+# Merge with mainstream party data
+full_dataset <- merge(
+  mpds_european_1960,
+  green_party_data_sub,
+  by = c("countryname", "edate"),
+  all.x = FALSE
+)
+
+
+#View(full_dataset)
+
+# Calculate Lowe's RILE score
+full_dataset <- calculate_rile_lowe(full_dataset)
+
+# Select final columns and remove duplicates
+final_dataset <- full_dataset %>%
+  dplyr::select(
+    countryname, edate, country, party, oecdmember, eumember, date, 
+    partyname, partyabbrev, parfam, absseat, per410, per416, per501, 
+    threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet, 
+    i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe
+  ) %>%
+  remove_duplicates(
+    c("countryname", "edate", "party"),
+    pervote_samlet
+  )
+```
+
+## 1.7 Final Variable Creation og Radical Right Parti Presence
+
+```{r create_final_variables}
+# Create all derived variables needed for analysis
+final_dataset <- final_dataset %>%
+  mutate(
+    # Convert to numeric
+    pervote_samlet = as.numeric(pervote_samlet),
+    lagged_pervote_samlet = as.numeric(lagged_pervote_samlet),
+    
+    # Create centered variables (running variables for RDD)
+    centered_pervote_samlet = pervote_samlet - threshold,
+    centered_lagged_pervote_samlet = lagged_pervote_samlet - threshold_lagged,
+    
+    # Create dependent variable: environmental position
+    miljø_afhængig = log((per416 + per501 + 0.5) / (per410 + 0.5)),
+    
+    miljø_afhængig_alt = log(per416 + per501 + 0.5) - log(per410 + 0.5),
+    
+    # Create factor variables for parliament presence
+    factor_lagged_i_parlament = factor(
+      lagged_i_parlament, 
+      levels = c(0, 1), 
+      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+    ),
+    factor_i_parlament = factor(
+      i_parlament, 
+      levels = c(0, 1), 
+      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+    ),
+    
+    # Create variables for party size (for H5)
+    large_party = ifelse(avg_pervote_main > median(avg_pervote_main, na.rm = TRUE), 1, 0),
+    
+    # Create variables for left-right orientation (for H4)
+    left_party = ifelse(rile_lowe < 0, 1, 0)
+  )
+
+# Identificer første forekomst af højreradikale partier (parfam == 70)
+rrp_parties <- MPDataset_MPDS2024a %>%
+  filter(parfam == 70) %>%
+  dplyr::select(country, date, absseat) %>%
+  group_by(country) %>%
+  # Vælg den første forekomst for hvert land
+  slice(1) %>%
+  ungroup()
+
+# Funktion til at tilføje rrp_i_p variablen
+add_rrp_variable <- function(row) {
+  # Sikre at country matcher
+  match <- rrp_parties %>%
+    filter(
+      country == row[["country"]],
+      date <= row[["date"]]
+    )
+  
+  # Returner 1 hvis der er et match, ellers 0
+  return(ifelse(nrow(match) > 0, 1, 0))
+}
+
+# Tilføj rrp_i_p variablen til final_dataset
+final_dataset <- final_dataset %>%
+  rowwise() %>%
+  mutate(rrp_i_p = add_rrp_variable(pick(country, date))) %>%
+  ungroup()
+
+# Print information om den nye variabel
+print(paste("Antal rækker med rrp_i_p = 1:", sum(full_dataset$rrp_i_p == 1)))
+print(paste("Antal rækker med rrp_i_p = 0:", sum(full_dataset$rrp_i_p == 0)))
+
+# Se nærmere på fordelingen
+print("Fordeling af rrp_i_p:")
+print(table(full_dataset$rrp_i_p))
+
+ggplot(final_dataset, aes(x = factor(rrp_i_p))) +
+  geom_bar(fill = c("skyblue", "salmon")) +
+  labs(
+    title = "Fordeling af Højreradikale Partier",
+    x = "RRP i Parlament (0 = Nej, 1 = Ja)",
+    y = "Antal Observationer"
+  ) +
+  theme_minimal()
+
+#Lagged rrp_i_p
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(rrp_i_p_lag1 = dplyr::lag(rrp_i_p, n = 1, order_by = edate))
+
+#GDP Per Capita
+# Forbered datasættene ved at ekstrahere årstallet fra edate
+final_dataset <- dplyr::mutate(final_dataset, 
+                                Year = as.numeric(substr(edate, 1, 4)))
+
+# Match datasættene ved hjælp af left_join
+# Dette kopierer GDP_per_capita over i final_dataset
+final_dataset <- dplyr::left_join(final_dataset, 
+                                   gdp_per_capita, 
+                                   by = c("countryname" = "countryname", 
+                                          "Year" = "Year"))
+
+# Lagged gdp_per_capita
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(GDP_per_capita_lag1 = dplyr::lag(GDP_per_capita, n = 1, order_by = edate))
+
+#GDP Per Capita Growth
+# Match datasættene ved hjælp af left_join
+# Dette kopierer GDP_per_capita over i final_dataset
+final_dataset <- dplyr::left_join(final_dataset, 
+                                   gdp_per_capita_growth, 
+                                   by = c("countryname" = "countryname", 
+                                          "Year" = "Year"))
+
+
+#Unemployment
+# Dette kopierer GDP_per_capita over i final_dataset
+final_dataset <- dplyr::left_join(final_dataset, 
+                                   unemployment, 
+                                   by = c("countryname" = "countryname", 
+                                          "Year" = "Year"))
+
+
+#Inflation
+# Dette kopierer GDP_per_capita over i final_dataset
+final_dataset <- dplyr::left_join(final_dataset, 
+                                   inflation_consumer_prices, 
+                                   by = c("countryname" = "countryname", 
+                                          "Year" = "Year"))
+
+# Create clean dataset for analysis (remove missing values)
+clean_data <- na.omit(final_dataset)
+
+View(final_dataset)
+
+```
+
+
+# 2. Exploratory Data Analysis
+
+```{r exploratory_plots}
+# Initial RDD visualization
+initial_rdd_plot <- ggplot(final_dataset, 
+                          aes(x = centered_lagged_pervote_samlet, 
+                              y = miljø_afhængig, 
+                              color = factor_lagged_i_parlament)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", se = FALSE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "RDD Plot: Green Party Parliamentary Entry and Climate Focus",
+       x = "Green Party Vote Share (centered at threshold)",
+       y = "Climate Position") +
+  theme_minimal()
+print(initial_rdd_plot)
+
+# Polynomial fit visualization
+poly_rdd_plot <- plot_rdd(
+  data = final_dataset,
+  x_var = "centered_lagged_pervote_samlet",  # Bemærk anførselstegn
+  y_var = "miljø_afhængig",  # Bemærk anførselstegn
+  group_var = "factor_lagged_i_parlament",  # Bemærk anførselstegn
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "Climate Position Around Parliamentary Threshold"
+)
+print(poly_rdd_plot)
+
+# Distribution of outcome variable
+outcome_dist <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
+  geom_histogram(binwidth = 0.1, fill = "steelblue", color = "black") +
+  labs(title = "Distribution of Climate Position Variable", 
+       x = "Climate Position (miljø_afhængig)", 
+       y = "Count") +
+  theme_minimal()
+print(outcome_dist)
+
+# Distribution of running variable by parliamentary status
+running_var_dist <- ggplot(final_dataset, 
+                          aes(x = centered_lagged_pervote_samlet, 
+                              fill = factor_lagged_i_parlament)) +
+  geom_histogram(position = "dodge", bins = 30, alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Distribution of Green Party Vote Shares",
+       x = "Vote Share (centered around threshold)",
+       y = "Count",
+       fill = "Parliament Status") +
+  theme_minimal()
+print(running_var_dist)
+
+# Basal KDE med R's indbyggede density() funktion
+kde_result <- density(final_dataset$miljø_afhængig)
+
+# Plot KDE kurven
+plot(kde_result, main="KDE af Klima Position", xlab="Klima Position (miljø_afhængig)")
+
+# Fyld området under kurven
+polygon(c(kde_result$x, rev(kde_result$x)), 
+        c(kde_result$y, rep(0, length(kde_result$y))),
+        col=rgb(0.1, 0.4, 0.7, 0.5), border=NA)
+
+# Plot med ggplot2
+ggplot(data.frame(x = final_dataset$miljø_afhængig), aes(x = x)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "blue", alpha = 0.7) +
+  geom_density(color = "darkblue", size = 1) +
+  labs(title = "Histogram med KDE af Klima Position",
+       x = "Klima Position (miljø_afhængig)",
+       y = "Tæthed") +
+  theme_minimal()
+
+# Standardbåndbredde
+kde_standard <- density(final_dataset$miljø_afhængig)
+
+# Mindre båndbredde (mindre udglatning)
+kde_small <- density(final_dataset$miljø_afhængig, bw = kde_standard$bw * 0.5)
+
+# Større båndbredde (mere udglatning)
+kde_large <- density(final_dataset$miljø_afhængig, bw = kde_standard$bw * 2)
+
+# Plot alle tre kurver for sammenligning
+plot(kde_standard, main="KDE med forskellige båndbredder", xlab="Klima Position", col="black")
+lines(kde_small, col="blue")  # Mindre udglatning
+lines(kde_large, col="red")   # Mere udglatning
+legend("topright", legend=c("Standard", "Mindre udglatning", "Mere udglatning"), 
+       col=c("black", "blue", "red"), lty=1)
+
+# Antager en modificeret version af variablen (f.eks. uden nul-værdier)
+miljø_modificeret <- final_dataset$miljø_afhængig[final_dataset$miljø_afhængig != 0]
+
+# KDE for begge datasæt
+kde_original <- density(final_dataset$miljø_afhængig)
+kde_modificeret <- density(miljø_modificeret)
+
+# Plot sammenligning
+plot(kde_original, main="Sammenligning af fordelinger", xlab="Klima Position", col="blue", 
+     ylim=c(0, max(c(kde_original$y, kde_modificeret$y))))
+lines(kde_modificeret, col="red")
+legend("topright", legend=c("Original", "Modificeret"), col=c("blue", "red"), lty=1)
+```
+
+# 2.1 Robusthedstest af Miljø Afhængig
+```{r Robusthedstest af Miljø Afhængig}
+# Tilføj KDE til robusthedsanalyse
+library(ggplot2)
+
+# 1. KDE for hele datasættet
+kde_full <- density(clean_data$miljø_afhængig)
+plot(kde_full, main="KDE for hele datasættet", 
+     xlab="Miljø Afhængig Variable")
+
+# 2. KDE opdelt efter side af tærsklen
+kde_below_threshold <- density(clean_data$miljø_afhængig[clean_data$centered_lagged_pervote_samlet < 0])
+kde_above_threshold <- density(clean_data$miljø_afhængig[clean_data$centered_lagged_pervote_samlet >= 0])
+
+# Plot KDE for begge sider af tærsklen
+plot(kde_below_threshold, col="blue", main="KDE opdelt efter tærskel", 
+     xlab="Miljø Afhængig Variable")
+lines(kde_above_threshold, col="red")
+legend("topright", legend=c("Under tærskel", "Over tærskel"), 
+        col=c("blue", "red"), lty=1)
+
+# 3. Statistisk test for forskel i fordelinger
+# Kernal density test (approximate)
+library(stats)
+ks_test <- ks.test(
+  clean_data$miljø_afhængig[clean_data$centered_lagged_pervote_samlet < 0],
+  clean_data$miljø_afhængig[clean_data$centered_lagged_pervote_samlet >= 0]
+)
+print(ks_test)
+
+# 4. ggplot visualisering med facet
+ggplot(clean_data, aes(x = miljø_afhængig)) +
+  geom_density(aes(fill = centered_lagged_pervote_samlet >= 0), alpha = 0.5) +
+  facet_wrap(~ (centered_lagged_pervote_samlet >= 0)) +
+  labs(title = "KDE fordeling på begge sider af tærsklen",
+       x = "Miljø Afhængig Variable",
+       y = "Tæthed") +
+  theme_minimal()
+
+# 5. Tilføj bootstrap konfidensintervaller for KDE
+library(boot)
+
+# Funktion til at beregne KDE
+kde_boot_function <- function(data, indices) {
+  d <- density(data[indices])
+  return(d$y)
+}
+
+# Bootstrap KDE
+boot_result <- boot(clean_data$miljø_afhængig, 
+                    statistic = kde_boot_function, 
+                    R = 1000)
+
+# Plot KDE med bootstrap konfidensintervaller
+plot(kde_full, main="KDE med Bootstrap Konfidensintervaller")
+lines(kde_full$x, apply(boot_result$t, 2, quantile, probs = 0.025), col = "red", lty = 2)
+lines(kde_full$x, apply(boot_result$t, 2, quantile, probs = 0.975), col = "red", lty = 2)
+```
+
+# 3. Testing the Five Hypotheses
+
+## 3.1 H1: When green parties enter parliament, climate focus in mainstream parties decreases
+
+```{r h1_analysis}
+# Simple linear model
+h1_model_simple <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet + lagged_i_parlament,
+                     data = final_dataset)
+summary(h1_model_simple)
+
+# Interaction model
+h1_model_interaction <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                          data = final_dataset)
+summary(h1_model_interaction)
+
+# Clustered standard errors (by party)
+if (exists("coeftest.cluster_grøn")) {
+  data_used <- na.omit(final_dataset[, c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                                      "lagged_i_parlament", "party", "edate", "country")])
+  
+  
+  h1_robust <- coeftest.cluster_grøn(
+  data = data_used,
+  fm = h1_model_interaction,
+  cluster1 = data_used$party  # Pass the vector directly
+  )
+  print(h1_robust)
+  
+  # Double-clustered standard errors (by party and election date)
+  h1_robust_double <- summary.cluster_grøn(
+    obj = h1_model_interaction, 
+    data = data_used, 
+    cluster1 = "party", 
+    cluster2 = "edate"
+  )
+  print(h1_robust_double)
+  
+  # Multi-polynomial RDD with custom function
+  if (exists("rd.base_grøn")) {
+    rd.multic_h1 <- rd.base_grøn(
+      data = final_dataset,
+      force.var = 'centered_lagged_pervote_samlet',
+      yvar = 'miljø_afhængig',
+      seat.identifier = 'factor_lagged_i_parlament',
+      fixed.effects = 'country',
+      clust1 = 'party',
+      clust2 = 'edate',
+      polynomials = c(1, 2, 3, 4),
+      bws = NULL
+    )
+    print(rd.multic_h1)
+  }
+}
+
+# Robusthedsanalyse med forskellige båndbredder ved hjælp af den nye funktion
+# Definer kovariater, der skal kontrolleres for
+covariates_to_use <- c("country", "edate")
+
+# Kør robusthedsanalysen på alle data
+results_df_h1 <- run_rdd_robustness(
+  data = clean_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H1 - Grøn parti effekt"
+)
+
+# Vis resultaterne
+print(results_df_h1)
+
+# Opret en pæn tabel med knitr
+if (requireNamespace("knitr", quietly = TRUE)) {
+  print(knitr::kable(results_df_h1, 
+                    caption = "H1: Robusthedstest med forskellige båndbredder og polynomiegrader"))
+}
+
+# Standard RDD approach
+h1_rdd <- rdrobust(
+  y = clean_data$miljø_afhængig,
+  x = clean_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd"  # MSE-optimal bandwidth
+)
+summary(h1_rdd)
+
+# Alternative RDD specifications
+h1_rdd_alt <- rdrobust(
+  y = clean_data$miljø_afhængig,
+  x = clean_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 2,  # quadratic polynomial
+  kernel = "triangular",
+  h = 2  # fixed bandwidth
+)
+summary(h1_rdd_alt)
+
+# IV estimation (treating lagged_i_parlament as endogenous)
+h1_iv <- ivreg(miljø_afhængig ~ lagged_i_parlament | centered_lagged_pervote_samlet, 
+              data = clean_data)
+summary(h1_iv, diagnostics = TRUE)
+
+# Visual confirmation
+h1_plot <- plot_rdd(
+  data = clean_data,
+  x_var = "centered_lagged_pervote_samlet",  # Bemærk anførselstegn
+  y_var = "miljø_afhængig",                 # Bemærk anførselstegn
+  group_var = "factor_lagged_i_parlament",  # Bemærk anførselstegn
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H1: Effect of Green Party Entry on Mainstream Climate Focus"
+)
+print(h1_plot)
+```
+
+## 3.2 H2: Radical right parties in parliament reduce climate focus in mainstream parties
+```{r}
+# Simple linear model med rrp_i_p_lag1
+h2_model_simple <- lm(miljø_afhængig ~ rrp_i_p_lag1,
+                     data = final_dataset)
+summary(h2_model_simple)
+
+# Kontrolleret model med flere variable
+h2_model_kontrol <- lm(miljø_afhængig ~ rrp_i_p_lag1 + centered_lagged_pervote_samlet + lagged_i_parlament,
+                       data = final_dataset)
+summary(h2_model_kontrol)
+
+# Interaction model
+h2_model_interaction <- lm(miljø_afhængig ~ rrp_i_p_lag1 * centered_lagged_pervote_samlet * lagged_i_parlament, 
+                          data = final_dataset)
+summary(h2_model_interaction)
+
+# Clustered standard errors (by party)
+if (exists("coeftest.cluster_grøn")) {
+  data_used <- na.omit(final_dataset[, c("miljø_afhængig", "rrp_i_p_lag1", "centered_lagged_pervote_samlet", 
+                                      "lagged_i_parlament", "party", "edate", "country")])
+  
+  
+  h2_robust <- coeftest.cluster_grøn(
+  data = data_used,
+  fm = h2_model_interaction,
+  cluster1 = data_used$party  # Pass the vector directly
+  )
+  print(h2_robust)
+  
+  # Double-clustered standard errors (by party and election date)
+  h2_robust_double <- summary.cluster_grøn(
+    obj = h2_model_interaction, 
+    data = data_used, 
+    cluster1 = "party", 
+    cluster2 = "edate"
+  )
+  print(h2_robust_double)
+  
+  # Multi-polynomial RDD med rrp_i_p_lag1 som moderator
+  if (exists("rd.base_grøn")) {
+    rd.multic_h2 <- rd.base_grøn(
+      data = final_dataset,
+      force.var = 'centered_lagged_pervote_samlet',
+      yvar = 'miljø_afhængig',
+      seat.identifier = 'factor_lagged_i_parlament',
+      fixed.effects = c('country', 'rrp_i_p_lag1'),  # Tilføjet rrp_i_p_lag1 som fixed effect
+      clust1 = 'party',
+      clust2 = 'edate',
+      polynomials = c(1, 2, 3, 4),
+      bws = NULL
+    )
+    print(rd.multic_h2)
+  }
+}
+
+# Standard RDD approach opdelt efter rrp_i_p_lag1
+# Opdel data baseret på RRP status
+clean_data_no_rrp <- subset(clean_data, rrp_i_p_lag1 == 0)
+clean_data_with_rrp <- subset(clean_data, rrp_i_p_lag1 == 1)
+
+# Definer kovariater, der skal kontrolleres for
+covariates_to_use <- c("country", "edate", "lagged_i_parlament")
+
+# Kør robusthedsanalysen for data uden RRP i parlament
+results_df_no_rrp <- run_rdd_robustness(
+  data = clean_data_no_rrp,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Ingen RRP i parlament (lag1)"
+)
+
+# Kør robusthedsanalysen for data med RRP i parlament
+results_df_with_rrp <- run_rdd_robustness(
+  data = clean_data_with_rrp,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "RRP i parlament (lag1)"
+)
+
+# Kombinér resultaterne for at sammenligne direkte
+combined_results <- rbind(results_df_no_rrp, results_df_with_rrp)
+print(combined_results)
+
+# Vis resultaterne i en pæn tabel
+if (requireNamespace("knitr", quietly = TRUE)) {
+  print(knitr::kable(combined_results, 
+                     caption = "H2: Robusthedstest med forskellige båndbredder opdelt efter RRP-status (lag1)"))
+}
+
+# Vis også de oprindelige rdrobust resultater for sammenligning
+h2_rdd_no_rrp <- rdrobust(
+  y = clean_data_no_rrp$miljø_afhængig,
+  x = clean_data_no_rrp$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1, # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd" # MSE-optimal bandwidth
+)
+summary(h2_rdd_no_rrp)
+
+h2_rdd_with_rrp <- rdrobust(
+  y = clean_data_with_rrp$miljø_afhængig,
+  x = clean_data_with_rrp$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1, # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd" # MSE-optimal bandwidth
+)
+summary(h2_rdd_with_rrp)
+
+# Visual confirmation - sammenligning med og uden RRP i parlament
+# Plot 1: Uden højreradikale i parlamentet
+h2_plot_no_rrp <- plot_rdd(
+  data = clean_data_no_rrp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H2a: Klimafokus uden højreradikale partier i parlamentet (lag1)"
+)
+print(h2_plot_no_rrp)
+
+# Plot 2: Med højreradikale i parlamentet
+h2_plot_with_rrp <- plot_rdd(
+  data = clean_data_with_rrp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H2b: Klimafokus med højreradikale partier i parlamentet (lag1)"
+)
+print(h2_plot_with_rrp)
+
+# Kombiner plots til sammenligning (hvis du har gridExtra pakken)
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  gridExtra::grid.arrange(h2_plot_no_rrp, h2_plot_with_rrp, ncol = 2,
+                         top = "Sammenligning af grøn partis effekt med/uden RRP i parlament (lag1)")
+}
+
+# Test for trevejs-interaktion mellem rrp_i_p_lag1, green party vote share og repræsentation
+h2_model_3way <- lm(miljø_afhængig ~ rrp_i_p_lag1 * centered_lagged_pervote_samlet * lagged_i_parlament, 
+                   data = final_dataset)
+summary(h2_model_3way)
+
+# Visuel sammenligning af interaktionseffekter
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("tidyr", quietly = TRUE)) {
+  # Lav forudsigelser baseret på modellen
+  pred_data <- expand.grid(
+    rrp_i_p_lag1 = c(0, 1),
+    centered_lagged_pervote_samlet = seq(-5, 5, by = 0.5),
+    lagged_i_parlament = c(0, 1)
+  )
+  
+  pred_data$predicted <- predict(h2_model_3way, newdata = pred_data)
+  
+  # Tilføj faktorer for pænere labels
+  pred_data$rrp_status <- factor(pred_data$rrp_i_p_lag1, 
+                               levels = c(0, 1),
+                               labels = c("Ingen RRP i parlament (lag1)", "RRP i parlament (lag1)"))
+  
+  pred_data$gp_status <- factor(pred_data$lagged_i_parlament,
+                              levels = c(0, 1),
+                              labels = c("Grønt parti uden sæde", "Grønt parti med sæde"))
+  
+  # Plot interaktionen
+  ggplot2::ggplot(pred_data, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                         y = predicted, 
+                                         color = gp_status, 
+                                         linetype = gp_status)) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~ rrp_status) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = "Forudsagt klimaposition baseret på trevejs-interaktionsmodel (lag1)",
+      x = "Grønt partis stemmeandel (centreret ved tærskel)",
+      y = "Forudsagt klimaposition",
+      color = "Grønt parti status",
+      linetype = "Grønt parti status"
+    )
+}
+```
+
+
+## 3.3
+
+```{r h3_analysis, eval=FALSE}
+# Note: This is a template for H2 analysis once radical right party data is available
+# To implement this, you would need to:
+# 1. Collect GDP growth data or other economic indicators for corresponding years/countries
+# 2. Merge with your existing dataset
+# 3. Analyze how economic conditions moderate the effect of green parties
+
+# Example code structure (to be implemented with appropriate data):
+
+# Create economic dataset
+economic_data <- data.frame(
+  country = unique(final_dataset$country),
+  year = unique(format(as.Date(final_dataset$edate), "%Y")),
+  gdp_growth = NA,  # to be filled with actual data
+  unemployment = NA,  # to be filled with actual data
+  good_economy = NA  # binary indicator for above median growth
+)
+
+# Merge with main dataset
+final_dataset_with_econ <- merge(
+  final_dataset,
+  economic_data,
+  by = c("country", "year")
+)
+
+# Create indicator for good economy periods
+final_dataset_with_econ$good_economy <- 
+  ifelse(final_dataset_with_econ$gdp_growth > 
+           median(final_dataset_with_econ$gdp_growth, na.rm = TRUE), 1, 0)
+
+# Separate RDD analyses for good/bad economy periods
+good_economy_data <- subset(final_dataset_with_econ, good_economy == 1)
+bad_economy_data <- subset(final_dataset_with_econ, good_economy == 0)
+
+h3_good_rdd <- rdrobust(
+  y = good_economy_data$miljø_afhængig,
+  x = good_economy_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+
+h3_bad_rdd <- rdrobust(
+  y = bad_economy_data$miljø_afhængig,
+  x = bad_economy_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+
+# Interaction model
+h3_interaction <- lm(
+  miljø_afhængig ~ lagged_i_parlament * good_economy + centered_lagged_pervote_samlet,
+  data = final_dataset_with_econ
+)
+summary(h3_interaction)
+
+# Triple interaction
+h3_triple <- lm(
+  miljø_afhængig ~ lagged_i_parlament * good_economy * centered_lagged_pervote_samlet,
+  data = final_dataset_with_econ
+)
+summary(h3_triple)
+
+# Visualize results
+h3_good_plot <- plot_rdd(
+  data = good_economy_data,
+  x_var = centered_lagged_pervote_samlet,
+  y_var = miljø_afhængig,
+  group_var = factor_lagged_i_parlament,
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H3: Effect During Good Economic Conditions"
+)
+
+h3_bad_plot <- plot_rdd(
+  data = bad_economy_data,
+  x_var = centered_lagged_pervote_samlet,
+  y_var = miljø_afhængig,
+  group_var = factor_lagged_i_parlament,
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H3: Effect During Poor Economic Conditions"
+)
+
+```d to:
+# 1. Identify radical right parties (usually parfam = "70" for nationalist parties)
+# 2. Calculate their presence in parliament and vote share relative to thresholds
+# 3. Follow similar RDD approach as with green parties
+
+# Example code structure (to be implemented with appropriate data):
+
+# Create radical right party dataset
+radical_right_data <- data.frame(
+  country = unique(final_dataset$country),
+  edate = unique(final_dataset$edate),
+  radical_right_in_parliament = NA,  # binary indicator to be filled
+  centered_radical_right_vote_share = NA  # vote share centered on threshold
+)
+
+# Merge with main dataset
+final_dataset_with_rr <- merge(
+  final_dataset,
+  radical_right_data,
+  by = c("country", "edate")
+)
+
+# RDD analysis
+h2_rdd <- rdrobust(
+  y = final_dataset_with_rr$miljø_afhængig,
+  x = final_dataset_with_rr$centered_radical_right_vote_share,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+
+# Interaction with party ideology
+h2_interaction <- lm(
+  miljø_afhængig ~ radical_right_in_parliament * rile_lowe + centered_radical_right_vote_share,
+  data = final_dataset_with_rr
+)
+
+# Plot results
+h2_plot <- plot_rdd(
+  data = final_dataset_with_rr,
+  x_var = centered_radical_right_vote_share,
+  y_var = miljø_afhængig,
+  group_var = radical_right_in_parliament,
+  x_limit = 10,
+  x_label = "Radical Right Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H2: Effect of Radical Right Parties on Climate Focus"
+)
+```
+
+
+## 3.2 H4: When green parties enter parliament, left-wing mainstream parties increase climate focus
+
+```{r h4_analysis}
+# Simple linear model
+h4_model_simple <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet + lagged_i_parlament,
+                     data = final_dataset)
+summary(h4_model_simple)
+
+# Interaction model
+h4_model_interaction <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                          data = final_dataset)
+summary(h4_model_interaction)
+
+# Clustered standard errors (by party)
+if (exists("coeftest.cluster_grøn")) {
+  data_used <- na.omit(final_dataset[, c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                                      "lagged_i_parlament", "party", "edate", "country")])
+  
+  
+  h4_robust <- coeftest.cluster_grøn(
+  data = data_used,
+  fm = h4_model_interaction,
+  cluster1 = data_used$party  # Pass the vector directly
+  )
+  print(h4_robust)
+  
+  # Double-clustered standard errors (by party and election date)
+  h4_robust_double <- summary.cluster_grøn(
+    obj = h4_model_interaction, 
+    data = data_used, 
+    cluster1 = "party", 
+    cluster2 = "edate"
+  )
+  print(h4_robust_double)
+  
+  # Multi-polynomial RDD with custom function
+  if (exists("rd.base_grøn")) {
+    rd.multic_h4 <- rd.base_grøn(
+      data = final_dataset,
+      force.var = 'centered_lagged_pervote_samlet',
+      yvar = 'miljø_afhængig',
+      seat.identifier = 'factor_lagged_i_parlament',
+      fixed.effects = 'country',
+      clust1 = 'party',
+      clust2 = 'edate',
+      polynomials = c(1, 2, 3, 4),
+      bws = NULL
+    )
+    print(rd.multic_h4)
+  }
+}
+
+# Robusthedsanalyse med forskellige båndbredder
+# Definer kovariater, der skal kontrolleres for
+covariates_to_use <- c("country", "edate")
+
+# Kør robusthedsanalysen på alle data
+results_df_h4 <- run_rdd_robustness(
+  data = clean_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H4 - Fuld sample"
+)
+
+# Vis resultaterne
+print(results_df_h4)
+
+# Opret en pæn tabel med knitr
+if (requireNamespace("knitr", quietly = TRUE)) {
+  print(knitr::kable(results_df_h4, 
+                    caption = "H4: Robusthedstest med forskellige båndbredder og polynomiegrader"))
+}
+
+# Undersøg om effekten varierer baseret på partiideologi (H4)
+# Opdel baseret på om partiet er venstre- eller højreorienteret
+clean_data_right_party <- subset(clean_data, left_party == 0)
+clean_data_left_party <- subset(clean_data, left_party == 1)
+
+# Kør robusthedsanalysen for højreorienterede partier
+results_df_h4_right <- run_rdd_robustness(
+  data = clean_data_right_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2),  # Begrænset til p=1,2 for at holde det enkelt
+  covariates = covariates_to_use,
+  group_label = "Højreorienterede partier"
+)
+
+# Kør robusthedsanalysen for venstreorienterede partier
+results_df_h4_left <- run_rdd_robustness(
+  data = clean_data_left_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2),  # Begrænset til p=1,2 for at holde det enkelt
+  covariates = covariates_to_use,
+  group_label = "Venstreorienterede partier"
+)
+
+# Kombinér resultaterne for at sammenligne direkte
+combined_results_ideology <- rbind(results_df_h4_right, results_df_h4_left)
+print(combined_results_ideology)
+
+# Vis kombinerede resultater i pæne tabeller
+if (requireNamespace("knitr", quietly = TRUE)) {
+  print(knitr::kable(combined_results_ideology, 
+                    caption = "H4: Effekten opdelt efter partiideologi"))
+}
+
+# Test direkte for interaktion med left_party
+h4_model_left_interaction <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament * left_party, 
+                               data = final_dataset)
+summary(h4_model_left_interaction)
+
+# Standard RDD approach
+h4_rdd <- rdrobust(
+  y = clean_data$miljø_afhængig,
+  x = clean_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd"  # MSE-optimal bandwidth
+)
+summary(h4_rdd)
+
+# Alternative RDD specifications
+h4_rdd_alt <- rdrobust(
+  y = clean_data$miljø_afhængig,
+  x = clean_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 2,  # quadratic polynomial
+  kernel = "triangular",
+  h = 2  # fixed bandwidth
+)
+summary(h4_rdd_alt)
+
+# IV estimation med interaktion med left_party
+h4_iv <- ivreg(miljø_afhængig ~ lagged_i_parlament * left_party | 
+               centered_lagged_pervote_samlet * left_party, 
+              data = clean_data)
+summary(h4_iv, diagnostics = TRUE)
+
+# Visual confirmation
+h4_plot <- plot_rdd(
+  data = clean_data,
+  x_var = "centered_lagged_pervote_samlet",  # Bemærk anførselstegn
+  y_var = "miljø_afhængig",                 # Bemærk anførselstegn
+  group_var = "factor_lagged_i_parlament",  # Bemærk anførselstegn
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H4: Effect of Green Party Entry on Mainstream Climate Focus"
+)
+print(h4_plot)
+
+# Yderligere visualiseringer opdelt efter partiideologi
+# Opdelt efter partiideologi
+h4_plot_right <- plot_rdd(
+  data = clean_data_right_party,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H4: Effekt på højreorienterede partier"
+)
+
+h4_plot_left <- plot_rdd(
+  data = clean_data_left_party,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H4: Effekt på venstreorienterede partier"
+)
+
+# Vis plots
+print(h4_plot_right)
+print(h4_plot_left)
+
+# Kombiner plots hvis gridExtra er tilgængelig
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  # Partiideologi
+  gridExtra::grid.arrange(h4_plot_right, h4_plot_left, ncol = 2,
+                         top = "H4: Effekt opdelt efter partiideologi")
+}
+
+# Visuel sammenligning af interaktionseffekter
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("tidyr", quietly = TRUE)) {
+  # Lav forudsigelser baseret på modellen
+  pred_data <- expand.grid(
+    left_party = c(0, 1),
+    centered_lagged_pervote_samlet = seq(-5, 5, by = 0.5),
+    lagged_i_parlament = c(0, 1)
+  )
+  
+  pred_data$predicted <- predict(h4_model_left_interaction, newdata = pred_data)
+  
+  # Tilføj faktorer for pænere labels
+  pred_data$ideology <- factor(pred_data$left_party, 
+                               levels = c(0, 1),
+                               labels = c("Højreorienteret parti", "Venstreorienteret parti"))
+  
+  pred_data$gp_status <- factor(pred_data$lagged_i_parlament,
+                              levels = c(0, 1),
+                              labels = c("Grønt parti uden sæde", "Grønt parti med sæde"))
+  
+  # Plot interaktionen
+  ggplot2::ggplot(pred_data, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                         y = predicted, 
+                                         color = gp_status, 
+                                         linetype = gp_status)) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~ ideology) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = "Forudsagt klimaposition baseret på H4 interaktionsmodel",
+      x = "Grønt partis stemmeandel (centreret ved tærskel)",
+      y = "Forudsagt klimaposition",
+      color = "Grønt parti status",
+      linetype = "Grønt parti status"
+    )
+}
+```
+
+## 3.3 H5: Larger mainstream parties respond less to green parties in parliament
+
+```{r h5_analysis}
+# Simple linear model for H5
+h5_model_simple <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet + lagged_i_parlament + large_party,
+                     data = final_dataset)
+summary(h5_model_simple)
+
+# Interaction model
+h5_model_interaction <- lm(miljø_afhængig ~ lagged_i_parlament * large_party + centered_lagged_pervote_samlet, 
+                          data = final_dataset)
+summary(h5_model_interaction)
+
+# Alternativ specifikation med avg_pervote_main som kontinuerlig variabel
+h5_interaction_cont <- lm(
+  miljø_afhængig ~ lagged_i_parlament * avg_pervote_main + centered_lagged_pervote_samlet,
+  data = clean_data
+)
+summary(h5_interaction_cont)
+
+# Trevejs-interaktion
+h5_triple <- lm(
+  miljø_afhængig ~ lagged_i_parlament * avg_pervote_main * centered_lagged_pervote_samlet,
+  data = clean_data
+)
+summary(h5_triple)
+
+# Clustered standard errors (by party)
+if (exists("coeftest.cluster_grøn")) {
+  data_used <- na.omit(final_dataset[, c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                                      "lagged_i_parlament", "large_party", "party", "edate", "country")])
+  
+  
+  h5_robust <- coeftest.cluster_grøn(
+  data = data_used,
+  fm = h5_model_interaction,
+  cluster1 = data_used$party  # Pass the vector directly
+  )
+  print(h5_robust)
+  
+  # Double-clustered standard errors (by party and election date)
+  h5_robust_double <- summary.cluster_grøn(
+    obj = h5_model_interaction, 
+    data = data_used, 
+    cluster1 = "party", 
+    cluster2 = "edate"
+  )
+  print(h5_robust_double)
+  
+  # For den kontinuerlige specifikation
+  data_used_cont <- na.omit(clean_data[, c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                                      "lagged_i_parlament", "avg_pervote_main", "party", "edate", "country")])
+  
+  h5_robust_cont <- coeftest.cluster_grøn(
+    data = data_used_cont,
+    fm = h5_interaction_cont,
+    cluster1 = data_used_cont$party
+  )
+  print(h5_robust_cont)
+}
+
+# Robusthedsanalyse med forskellige båndbredder
+# Opdel data baseret på partistørrelse
+large_parties <- subset(clean_data, large_party == 1)
+small_parties <- subset(clean_data, large_party == 0)
+
+# Definer kovariater, der skal kontrolleres for
+covariates_to_use <- c("country", "edate")
+
+# Kør robusthedsanalysen for store partier
+results_df_h5_large <- run_rdd_robustness(
+  data = large_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Store partier"
+)
+
+# Kør robusthedsanalysen for små partier
+results_df_h5_small <- run_rdd_robustness(
+  data = small_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Små partier"
+)
+
+# Kombinér resultaterne for at sammenligne direkte
+combined_results_size <- rbind(results_df_h5_large, results_df_h5_small)
+print(combined_results_size)
+
+# Vis resultaterne i en pæn tabel
+if (requireNamespace("knitr", quietly = TRUE)) {
+  print(knitr::kable(combined_results_size, 
+                    caption = "H5: Robusthedstest med forskellige båndbredder opdelt efter partistørrelse"))
+}
+
+# Standard RDD approach for store og små partier
+h5_large_rdd <- rdrobust(
+  y = large_parties$miljø_afhængig,
+  x = large_parties$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+summary(h5_large_rdd)
+
+h5_small_rdd <- rdrobust(
+  y = small_parties$miljø_afhængig,
+  x = small_parties$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd"
+)
+summary(h5_small_rdd)
+
+# Alternative specificationer med fixed bandwidth
+h5_large_rdd_alt <- rdrobust(
+  y = large_parties$miljø_afhængig,
+  x = large_parties$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  h = 2  # fixed bandwidth
+)
+summary(h5_large_rdd_alt)
+
+h5_small_rdd_alt <- rdrobust(
+  y = small_parties$miljø_afhængig,
+  x = small_parties$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  h = 2  # fixed bandwidth
+)
+summary(h5_small_rdd_alt)
+
+# IV estimation opdelt efter partistørrelse
+h5_large_iv <- ivreg(miljø_afhængig ~ lagged_i_parlament | centered_lagged_pervote_samlet, 
+              data = large_parties)
+summary(h5_large_iv, diagnostics = TRUE)
+
+h5_small_iv <- ivreg(miljø_afhængig ~ lagged_i_parlament | centered_lagged_pervote_samlet, 
+              data = small_parties)
+summary(h5_small_iv, diagnostics = TRUE)
+
+# Visual confirmation
+h5_large_plot <- plot_rdd(
+  data = large_parties,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H5: Effect on Large Mainstream Parties"
+)
+print(h5_large_plot)
+
+h5_small_plot <- plot_rdd(
+  data = small_parties,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H5: Effect on Small Mainstream Parties"
+)
+print(h5_small_plot)
+
+# Kombiner plots hvis gridExtra er tilgængelig
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  gridExtra::grid.arrange(h5_large_plot, h5_small_plot, ncol = 2,
+                         top = "H5: Effekt opdelt efter partistørrelse")
+}
+
+# Avanceret visualisering med kontinuerlig partistørrelse
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  # Interaction plot med continuous party size
+  ggplot2::ggplot(clean_data, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                         y = miljø_afhængig)) +
+    ggplot2::geom_point(ggplot2::aes(color = factor_lagged_i_parlament, 
+                                   size = avg_pervote_main), 
+                       alpha = 0.5) +
+    ggplot2::geom_smooth(data = subset(clean_data, centered_lagged_pervote_samlet < 0),
+                       method = "lm", formula = y ~ x, se = TRUE) +
+    ggplot2::geom_smooth(data = subset(clean_data, centered_lagged_pervote_samlet >= 0),
+                       method = "lm", formula = y ~ x, se = TRUE) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    ggplot2::labs(title = "Climate Position by Green Party Vote Share and Mainstream Party Size",
+                x = "Green Party Vote Share (centered)",
+                y = "Climate Position",
+                color = "Green Party in Parliament",
+                size = "Mainstream Party Size") +
+    ggplot2::theme_minimal()
+    
+  # Visuel sammenligning af interaktionseffekter
+  # Lav forudsigelser baseret på modellen med kontinuerlig partistørrelse
+  pred_data <- expand.grid(
+    avg_pervote_main = c(10, 20, 30),  # Små, mellemstore og store partier
+    centered_lagged_pervote_samlet = seq(-5, 5, by = 0.5),
+    lagged_i_parlament = c(0, 1)
+  )
+  
+  pred_data$predicted <- predict(h5_interaction_cont, newdata = pred_data)
+  
+  # Tilføj faktorer for pænere labels
+  pred_data$party_size <- factor(pred_data$avg_pervote_main, 
+                              levels = c(10, 20, 30),
+                              labels = c("Lille parti (10%)", 
+                                        "Mellemstort parti (20%)", 
+                                        "Stort parti (30%)"))
+  
+  pred_data$gp_status <- factor(pred_data$lagged_i_parlament,
+                              levels = c(0, 1),
+                              labels = c("Grønt parti uden sæde", 
+                                        "Grønt parti med sæde"))
+  
+  # Plot interaktionen
+  ggplot2::ggplot(pred_data, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                         y = predicted, 
+                                         color = gp_status, 
+                                         linetype = gp_status)) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~ party_size) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = "Forudsagt klimaposition baseret på H5 interaktionsmodel",
+      x = "Grønt partis stemmeandel (centreret ved tærskel)",
+      y = "Forudsagt klimaposition",
+      color = "Grønt parti status",
+      linetype = "Grønt parti status"
+    )
+}
+```
+
+
+```{r Placebo Tests}
+
+```
+
