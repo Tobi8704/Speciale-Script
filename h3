@@ -1,0 +1,988 @@
+# ============================================================================
+# PART 1: ANALYSIS WITH GDP GROWTH AS MODERATOR
+# ============================================================================
+
+# Opdel data baseret på BNP-vækst
+h3_high_gdp <- subset(final_dataset, high_gdp_growth == 1)
+h3_low_gdp <- subset(final_dataset, high_gdp_growth == 0)
+
+# 1. VISUAL INSPECTION OF THE DISCONTINUITY ----------------
+
+## RDD visualization for No RRP
+h3_plot_high_gdp <- plot_rdd(
+  data = h3_high_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H2a: Climate Position med lav GDP"
+)
+
+# RDD visualization for With RRP
+h3_plot_low_gdp <- plot_rdd(
+  data = h3_low_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H2b: Climate Position med høj GDP"
+)
+
+# Combine plots for comparison with more width
+grid.arrange(h3_plot_high_gdp, h3_plot_low_gdp, 
+             ncol = 2,
+             widths = c(1, 1),
+             top = "Comparison of Green Party Effect with høj/lav GDP")
+
+# 2. RDD ESTIMATION ----------------
+## Standard rdrobust for No RRP
+h3_rdd_high_gdp <- rdrobust(
+  y = h3_plot_high_gdp$miljø_afhængig,
+  x = h3_plot_high_gdp$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "uniform",
+  h = 1.5
+)
+
+# Standard rdrobust for With RRP
+h3_rdd_low_gdp <- rdrobust(
+  y = h3_plot_low_gdp$miljø_afhængig,
+  x = h3_plot_low_gdp$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "uniform",
+  h = 1.5
+)
+
+# Summarize results
+summary(h3_plot_high_gdp)
+summary(h3_plot_low_gdp)
+
+# ============================================================================
+# 1.5 RDD Analysis for GDP Growth Subsets
+# ============================================================================
+
+# Multi-polynomial RDD with custom function
+# Høj BNP-vækst sample
+rd.multic_h3_high_gdp <- rd.base_grøn(
+  data = clean_data_high_gdp,
+  force.var = 'centered_lagged_pervote_samlet',
+  yvar = 'miljø_afhængig',
+  seat.identifier = 'factor_lagged_i_parlament',
+  fixed.effects = 'country',
+  clust1 = 'party',
+  clust2 = 'edate',
+  polynomials = c(1, 2, 3, 4),
+  bws = NULL
+)
+print(rd.multic_h3_high_gdp)
+  
+  # Lav BNP-vækst sample
+rd.multic_h3_low_gdp <- rd.base_grøn(
+  data = clean_data_low_gdp,
+  force.var = 'centered_lagged_pervote_samlet',
+  yvar = 'miljø_afhængig',
+  seat.identifier = 'factor_lagged_i_parlament',
+  fixed.effects = 'country',
+  clust1 = 'party',
+  clust2 = 'edate',
+  polynomials = c(1, 2, 3, 4),
+  bws = NULL
+)
+print(rd.multic_h3_low_gdp)
+
+# Robustness analysis med forskellige båndbredder
+covariates_to_use <- c("country", "edate")
+
+# Kør robusthedsanalysen på høj BNP-vækst data
+results_df_h3_high_gdp <- run_rdd_robustness(
+  data = clean_data_high_gdp,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H3 - Høj BNP-vækst"
+)
+
+# Kør robusthedsanalysen på lav BNP-vækst data
+results_df_h3_low_gdp <- run_rdd_robustness(
+  data = clean_data_low_gdp,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H3 - Lav BNP-vækst"
+)
+
+# Vis resultater
+print(results_df_h3_high_gdp)
+print(results_df_h3_low_gdp)
+
+# Kombiner resultater i en pæn tabel med knitr
+if (requireNamespace("knitr", quietly = TRUE)) {
+  combined_results_gdp <- rbind(results_df_h3_high_gdp, results_df_h3_low_gdp)
+  
+  print(knitr::kable(combined_results_gdp, 
+                    caption = "H3: Robusthedstest opdelt efter BNP-vækst"))
+}
+
+# ============================================================================
+# 1.6 Enhanced rdrobust Analysis for GDP Growth Subsets - FIXED
+# ============================================================================
+
+# HIGH GDP GROWTH: Standard rdrobust (without covariates)
+h3_rdd_high_gdp <- rdrobust(
+  y = clean_data_high_gdp$miljø_afhængig,
+  x = clean_data_high_gdp$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd"  # MSE-optimal bandwidth
+)
+summary(h3_rdd_high_gdp)
+
+# HIGH GDP GROWTH: rdrobust with simpler covariates and fixed bandwidth
+tryCatch({
+  # Try with fixed bandwidth first
+  h3_rdd_covs_high_gdp <- rdrobust(
+    y = clean_data_high_gdp$miljø_afhængig,
+    x = clean_data_high_gdp$centered_lagged_pervote_samlet,
+    c = 0,
+    covs = model.matrix(~ factor(country), data = clean_data_high_gdp)[,-1],  # Simplified covariate
+    p = 1,
+    kernel = "triangular",
+    h = 2  # Use fixed bandwidth instead of optimal selection
+  )
+  summary(h3_rdd_covs_high_gdp)
+}, error = function(e) {
+  cat("Fixed bandwidth with covariates still failed:", e$message, "\n")
+  cat("Trying with just country fixed effects and no other covariates...\n")
+  
+  # Try with even simpler approach - just country FE
+  tryCatch({
+    h3_rdd_country_high_gdp <- rdrobust(
+      y = clean_data_high_gdp$miljø_afhængig,
+      x = clean_data_high_gdp$centered_lagged_pervote_samlet,
+      c = 0,
+      covs = model.matrix(~ factor(country), data = clean_data_high_gdp)[,-1],
+      p = 1,
+      kernel = "uniform",  # Try different kernel
+      h = 3  # Try even wider bandwidth
+    )
+    summary(h3_rdd_country_high_gdp)
+  }, error = function(e2) {
+    cat("Even simpler approach failed:", e2$message, "\n")
+    cat("Proceeding with analysis without covariates for high GDP growth subset\n")
+  })
+})
+
+# LOW GDP GROWTH: rdrobust with error handling
+tryCatch({
+  h3_rdd_low_gdp <- rdrobust(
+    y = clean_data_low_gdp$miljø_afhængig,
+    x = clean_data_low_gdp$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h3_rdd_low_gdp)
+}, error = function(e) {
+  cat("Note: Kunne ikke beregne RDD for lav BNP-vækst gruppe pga:", e$message, "\n")
+  cat("Dette kan skyldes utilstrækkelige data eller høj kollinearitet i subset med lav BNP-vækst.\n")
+  
+  # Try with fixed bandwidth
+  tryCatch({
+    cat("Forsøger med fast båndbredde i stedet...\n")
+    h3_rdd_low_gdp_alt <- rdrobust(
+      y = clean_data_low_gdp$miljø_afhængig,
+      x = clean_data_low_gdp$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,
+      kernel = "triangular",
+      h = 2
+    )
+    summary(h3_rdd_low_gdp_alt)
+  }, error = function(e2) {
+    cat("Alternativ specifikation fejlede også:", e2$message, "\n")
+  })
+})
+
+# ============================================================================
+# 1.7 Separate Analysis for Zero and Non-Zero Values by GDP Growth
+# ============================================================================
+
+# HIGH GDP GROWTH: Split data into zero and non-zero values
+zero_data_high_gdp <- subset(clean_data_high_gdp, miljø_afhængig == 0)
+nonzero_data_high_gdp <- subset(clean_data_high_gdp, miljø_afhængig != 0)
+
+# LOW GDP GROWTH: Split data into zero and non-zero values
+zero_data_low_gdp <- subset(clean_data_low_gdp, miljø_afhængig == 0)
+nonzero_data_low_gdp <- subset(clean_data_low_gdp, miljø_afhængig != 0)
+
+# RDD for non-zero values only (HIGH GDP GROWTH)
+tryCatch({
+  h3_rdd_nonzero_high_gdp <- rdrobust(
+    y = nonzero_data_high_gdp$miljø_afhængig,
+    x = nonzero_data_high_gdp$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h3_rdd_nonzero_high_gdp)
+}, error = function(e) {
+  cat("Note: RDD for non-zero values in high GDP group failed:", e$message, "\n")
+  # Try with fixed bandwidth
+  tryCatch({
+    h3_rdd_nonzero_high_gdp_fixed <- rdrobust(
+      y = nonzero_data_high_gdp$miljø_afhængig,
+      x = nonzero_data_high_gdp$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,
+      kernel = "triangular",
+      h = 2
+    )
+    summary(h3_rdd_nonzero_high_gdp_fixed)
+  }, error = function(e2) {
+    cat("Fixed bandwidth also failed:", e2$message, "\n")
+  })
+})
+
+# RDD for non-zero values only (LOW GDP GROWTH)
+tryCatch({
+  h3_rdd_nonzero_low_gdp <- rdrobust(
+    y = nonzero_data_low_gdp$miljø_afhængig,
+    x = nonzero_data_low_gdp$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h3_rdd_nonzero_low_gdp)
+}, error = function(e) {
+  cat("Note: RDD for non-zero values in low GDP group failed:", e$message, "\n")
+  # Try with fixed bandwidth
+  tryCatch({
+    h3_rdd_nonzero_low_gdp_fixed <- rdrobust(
+      y = nonzero_data_low_gdp$miljø_afhængig,
+      x = nonzero_data_low_gdp$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,
+      kernel = "triangular",
+      h = 2
+    )
+    summary(h3_rdd_nonzero_low_gdp_fixed)
+  }, error = function(e2) {
+    cat("Fixed bandwidth also failed:", e2$message, "\n")
+  })
+})
+
+# ============================================================================
+# 1.8 Visual Confirmation and RDD Plots for GDP Growth
+# ============================================================================
+
+# Visuel bekræftelse - høj BNP-vækst
+h3_plot_high_gdp <- plot_rdd(
+  data = clean_data_high_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Grønt partis stemmeandel (centreret)",
+  y_label = "Klimaposition",
+  title = "H3: Effekt ved høj BNP-vækst"
+)
+print(h3_plot_high_gdp)
+
+# Visuel bekræftelse - lav BNP-vækst
+h3_plot_low_gdp <- plot_rdd(
+  data = clean_data_low_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Grønt partis stemmeandel (centreret)",
+  y_label = "Klimaposition",
+  title = "H3: Effekt ved lav BNP-vækst"
+)
+print(h3_plot_low_gdp)
+
+# Plots for non-zero values only - high GDP
+h3_plot_nonzero_high_gdp <- plot_rdd(
+  data = nonzero_data_high_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Grønt partis stemmeandel (centreret)",
+  y_label = "Klimaposition (kun ikke-nul værdier)",
+  title = "H3: Effekt ved høj BNP-vækst (kun ikke-nul værdier)"
+)
+print(h3_plot_nonzero_high_gdp)
+
+# Plots for non-zero values only - low GDP
+h3_plot_nonzero_low_gdp <- plot_rdd(
+  data = nonzero_data_low_gdp,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Grønt partis stemmeandel (centreret)",
+  y_label = "Klimaposition (kun ikke-nul værdier)",
+  title = "H3: Effekt ved lav BNP-vækst (kun ikke-nul værdier)"
+)
+print(h3_plot_nonzero_low_gdp)
+
+# Kombiner plots hvis gridExtra er tilgængelig
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  gridExtra::grid.arrange(h3_plot_high_gdp, h3_plot_low_gdp, ncol = 2,
+                         top = "H3: Effekt opdelt efter BNP-vækst")
+  
+  gridExtra::grid.arrange(h3_plot_nonzero_high_gdp, h3_plot_nonzero_low_gdp, ncol = 2,
+                         top = "H3: Effekt opdelt efter BNP-vækst (kun ikke-nul værdier)")
+}
+
+# ============================================================================
+# PART 2: ANALYSIS WITH COMPOSITE ECONOMIC INDICATOR - UPDATED WITH FIXES
+# ============================================================================
+
+# Split data based on economic condition
+clean_data_good_economy <- na.omit(subset(final_dataset, good_economy == 1))
+clean_data_bad_economy <- na.omit(subset(final_dataset, good_economy == 0))
+
+# ============================================================================
+# 2.1 Basic Linear Models with Economic Index
+# ============================================================================
+
+# Simple linear model
+h3_model_simple <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet + lagged_i_parlament,
+                     data = final_dataset)
+summary(h3_model_simple)
+
+# Interaction model with economic factors
+h3_model_interaction <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament * good_economy, 
+                        data = final_dataset)
+summary(h3_model_interaction)
+
+# Clustered standard errors (by party)
+if (exists("coeftest.cluster_grøn")) {
+  data_used <- na.omit(final_dataset[, c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                                     "lagged_i_parlament", "party", "edate", "country", "good_economy")])
+  
+  h3_robust <- coeftest.cluster_grøn(
+    data = data_used,
+    fm = h3_model_interaction,
+    cluster1 = data_used$party  # Pass the vector directly
+  )
+  print(h3_robust)
+  
+  # Double-clustered standard errors (by party and election date)
+  h3_robust_double <- summary.cluster_grøn(
+    obj = h3_model_interaction, 
+    data = data_used, 
+    cluster1 = "party", 
+    cluster2 = "edate"
+  )
+  print(h3_robust_double)
+}
+
+# ============================================================================
+# 2.2 Two-Part Model for Economic Condition Subsets
+# ============================================================================
+
+# GOOD ECONOMY: Two-Part Model
+# Part 1: Logit model for predicting non-zero climate focus
+h3_binary_good_econ <- glm(I(miljø_afhængig != 0) ~ centered_lagged_pervote_samlet * lagged_i_parlament,
+                        family = binomial, data = clean_data_good_economy)
+summary(h3_binary_good_econ)
+
+# Part 2: Linear model on non-zero values only
+h3_continuous_good_econ <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament,
+                           data = subset(clean_data_good_economy, miljø_afhængig != 0))
+summary(h3_continuous_good_econ)
+
+# BAD ECONOMY: Two-Part Model
+# Part 1: Logit model for predicting non-zero climate focus
+h3_binary_bad_econ <- glm(I(miljø_afhængig != 0) ~ centered_lagged_pervote_samlet * lagged_i_parlament,
+                       family = binomial, data = clean_data_bad_economy)
+summary(h3_binary_bad_econ)
+
+# Part 2: Linear model on non-zero values only
+h3_continuous_bad_econ <- lm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament,
+                          data = subset(clean_data_bad_economy, miljø_afhængig != 0))
+summary(h3_continuous_bad_econ)
+
+# ============================================================================
+# 2.3 Quantile Regression for Economic Condition Subsets
+# ============================================================================
+
+# GOOD ECONOMY: Quantile Regression
+# Median regression
+h3_median_rq_good_econ <- rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                          tau = 0.5, data = clean_data_good_economy)
+summary(h3_median_rq_good_econ)
+
+# Multiple quantiles
+h3_multi_quantile_good_econ <- rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                               tau = c(0.25, 0.5, 0.75), data = clean_data_good_economy)
+summary(h3_multi_quantile_good_econ)
+
+# Generate plot for coefficients across quantiles
+h3_quantile_plot_good_econ <- plot(summary(rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                                          tau = seq(0.1, 0.9, by = 0.1), data = clean_data_good_economy)))
+
+# BAD ECONOMY: Quantile Regression
+# Median regression
+h3_median_rq_bad_econ <- rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                         tau = 0.5, data = clean_data_bad_economy)
+summary(h3_median_rq_bad_econ)
+
+# Multiple quantiles
+h3_multi_quantile_bad_econ <- rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                              tau = c(0.25, 0.5, 0.75), data = clean_data_bad_economy)
+summary(h3_multi_quantile_bad_econ)
+
+# Generate plot for coefficients across quantiles
+h3_quantile_plot_bad_econ <- plot(summary(rq(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                                         tau = seq(0.1, 0.9, by = 0.1), data = clean_data_bad_economy)))
+
+# Save quantile plots
+pdf("h3_quantile_coefficients_good_econ.pdf", width = 10, height = 8)
+print(h3_quantile_plot_good_econ)
+dev.off()
+
+pdf("h3_quantile_coefficients_bad_econ.pdf", width = 10, height = 8)
+print(h3_quantile_plot_bad_econ)
+dev.off()
+
+# ============================================================================
+# 2.4 Robust Regression for Economic Condition Subsets
+# ============================================================================
+
+# Robust regression for full sample with economic interaction
+h3_robust_reg_econ <- rlm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament * good_economy, 
+                       data = final_dataset, method = "MM")
+summary(h3_robust_reg_econ)
+
+# GOOD ECONOMY: Robust Regression
+h3_robust_reg_good_econ <- rlm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                            data = clean_data_good_economy, method = "MM")
+summary(h3_robust_reg_good_econ)
+
+# BAD ECONOMY: Robust Regression
+h3_robust_reg_bad_econ <- rlm(miljø_afhængig ~ centered_lagged_pervote_samlet * lagged_i_parlament, 
+                           data = clean_data_bad_economy, method = "MM")
+summary(h3_robust_reg_bad_econ)
+
+# ============================================================================
+# 2.5 RDD Analysis for Economic Condition Subsets - FIXED
+# ============================================================================
+
+# Multi-polynomial RDD with custom function
+if (exists("rd.base_grøn")) {
+  # Good economy sample
+  rd.multic_h3_good <- rd.base_grøn(
+    data = clean_data_good_economy,
+    force.var = 'centered_lagged_pervote_samlet',
+    yvar = 'miljø_afhængig',
+    seat.identifier = 'factor_lagged_i_parlament',
+    fixed.effects = 'country',
+    clust1 = 'party',
+    clust2 = 'edate',
+    polynomials = c(1, 2, 3, 4),
+    bws = NULL
+  )
+  print(rd.multic_h3_good)
+  
+  # Bad economy sample
+  rd.multic_h3_bad <- rd.base_grøn(
+    data = clean_data_bad_economy,
+    force.var = 'centered_lagged_pervote_samlet',
+    yvar = 'miljø_afhængig',
+    seat.identifier = 'factor_lagged_i_parlament',
+    fixed.effects = 'country',
+    clust1 = 'party',
+    clust2 = 'edate',
+    polynomials = c(1, 2, 3, 4),
+    bws = NULL
+  )
+  print(rd.multic_h3_bad)
+}
+
+# Robustness analysis with different bandwidths
+# Define covariates to control for
+covariates_to_use <- c("country", "edate")
+
+# Run the robustness analysis on good economy data
+results_df_h3_good <- run_rdd_robustness(
+  data = clean_data_good_economy,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H3 - Good Economy"
+)
+
+# Run the robustness analysis on bad economy data
+results_df_h3_bad <- run_rdd_robustness(
+  data = clean_data_bad_economy,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "H3 - Bad Economy"
+)
+
+# Show results
+print(results_df_h3_good)
+print(results_df_h3_bad)
+
+# Create a nice table with knitr
+if (requireNamespace("knitr", quietly = TRUE)) {
+  # Combine results
+  combined_results_economy <- rbind(results_df_h3_good, results_df_h3_bad)
+  
+  print(knitr::kable(combined_results_economy, 
+                    caption = "H3: Robustness Test Across Economic Conditions"))
+}
+
+# ============================================================================
+# 2.6 Enhanced rdrobust Analysis for Economic Condition Subsets - FIXED
+# ============================================================================
+
+# GOOD ECONOMY: Standard rdrobust (without covariates)
+h3_rdd_good <- rdrobust(
+  y = clean_data_good_economy$miljø_afhængig,
+  x = clean_data_good_economy$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd"  # MSE-optimal bandwidth
+)
+summary(h3_rdd_good)
+
+# GOOD ECONOMY: rdrobust with simpler approach and fixed bandwidth
+tryCatch({
+  # Try with fixed bandwidth and minimal covariates
+  h3_rdd_covs_good_simple <- rdrobust(
+    y = clean_data_good_economy$miljø_afhængig,
+    x = clean_data_good_economy$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    h = 2  # Fixed bandwidth
+  )
+  summary(h3_rdd_covs_good_simple)
+}, error = function(e) {
+  cat("Note: Even simplified rdrobust for good economy failed:", e$message, "\n")
+})
+
+# BAD ECONOMY: rdrobust with error handling
+tryCatch({
+  h3_rdd_bad <- rdrobust(
+    y = clean_data_bad_economy$miljø_afhængig,
+    x = clean_data_bad_economy$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,  # linear polynomial
+    kernel = "triangular",
+    bwselect = "mserd"  # MSE-optimal bandwidth
+  )
+  summary(h3_rdd_bad)
+}, error = function(e) {
+  cat("Note: Could not compute RDD for bad economy group due to:", e$message, "\n")
+  
+  # Try with fixed bandwidth
+  tryCatch({
+    cat("Attempting with fixed bandwidth instead...\n")
+    h3_rdd_bad_alt <- rdrobust(
+      y = clean_data_bad_economy$miljø_afhængig,
+      x = clean_data_bad_economy$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,  # linear polynomial
+      kernel = "triangular",
+      h = 2  # fixed bandwidth
+    )
+    summary(h3_rdd_bad_alt)
+  }, error = function(e2) {
+    cat("Alternative specification also failed:", e2$message, "\n")
+  })
+})
+
+# ============================================================================
+# 2.7 Separate Analysis for Zero and Non-Zero Values by Economic Condition
+# ============================================================================
+
+# GOOD ECONOMY: Split data into zero and non-zero values
+zero_data_good_econ <- subset(clean_data_good_economy, miljø_afhængig == 0)
+nonzero_data_good_econ <- subset(clean_data_good_economy, miljø_afhængig != 0)
+
+# BAD ECONOMY: Split data into zero and non-zero values
+zero_data_bad_econ <- subset(clean_data_bad_economy, miljø_afhængig == 0)
+nonzero_data_bad_econ <- subset(clean_data_bad_economy, miljø_afhængig != 0)
+
+# RDD for non-zero values only (GOOD ECONOMY)
+tryCatch({
+  h3_rdd_nonzero_good_econ <- rdrobust(
+    y = nonzero_data_good_econ$miljø_afhængig,
+    x = nonzero_data_good_econ$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h3_rdd_nonzero_good_econ)
+}, error = function(e) {
+  cat("Note: RDD for non-zero values in good economy group failed:", e$message, "\n")
+  # Try with fixed bandwidth
+  tryCatch({
+    h3_rdd_nonzero_good_econ_fixed <- rdrobust(
+      y = nonzero_data_good_econ$miljø_afhængig,
+      x = nonzero_data_good_econ$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,
+      kernel = "triangular",
+      h = 2
+    )
+    summary(h3_rdd_nonzero_good_econ_fixed)
+  }, error = function(e2) {
+    cat("Fixed bandwidth also failed:", e2$message, "\n")
+  })
+})
+
+# RDD for non-zero values only (BAD ECONOMY)
+tryCatch({
+  h3_rdd_nonzero_bad_econ <- rdrobust(
+    y = nonzero_data_bad_econ$miljø_afhængig,
+    x = nonzero_data_bad_econ$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h3_rdd_nonzero_bad_econ)
+}, error = function(e) {
+  cat("Note: RDD for non-zero values in bad economy group failed:", e$message, "\n")
+  # Try with fixed bandwidth
+  tryCatch({
+    h3_rdd_nonzero_bad_econ_fixed <- rdrobust(
+      y = nonzero_data_bad_econ$miljø_afhængig,
+      x = nonzero_data_bad_econ$centered_lagged_pervote_samlet,
+      c = 0,
+      p = 1,
+      kernel = "triangular",
+      h = 2
+    )
+    summary(h3_rdd_nonzero_bad_econ_fixed)
+  }, error = function(e2) {
+    cat("Fixed bandwidth also failed:", e2$message, "\n")
+  })
+})
+
+# ============================================================================
+# 2.8 Visual Confirmation and RDD Plots for Economic Condition
+# ============================================================================
+
+# Visual confirmation - good economy
+h3_plot_good <- plot_rdd(
+  data = clean_data_good_economy,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H3: Effect Under Good Economic Conditions"
+)
+print(h3_plot_good)
+
+# Visual confirmation - bad economy
+h3_plot_bad <- plot_rdd(
+  data = clean_data_bad_economy,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position",
+  title = "H3: Effect Under Poor Economic Conditions"
+)
+print(h3_plot_bad)
+
+# Plots for non-zero values only - good economy
+h3_plot_nonzero_good_econ <- plot_rdd(
+  data = nonzero_data_good_econ,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position (Non-Zeros Only)",
+  title = "H3: Effect Under Good Economy (Non-Zero Values Only)"
+)
+print(h3_plot_nonzero_good_econ)
+
+# Plots for non-zero values only - bad economy
+h3_plot_nonzero_bad_econ <- plot_rdd(
+  data = nonzero_data_bad_econ,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (centered)",
+  y_label = "Climate Position (Non-Zeros Only)",
+  title = "H3: Effect Under Poor Economy (Non-Zero Values Only)"
+)
+print(h3_plot_nonzero_bad_econ)
+
+# Combine plots if gridExtra is available
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  # Economic condition
+  gridExtra::grid.arrange(h3_plot_good, h3_plot_bad, ncol = 2,
+                         top = "H3: Effect Split by Economic Condition")
+  
+  gridExtra::grid.arrange(h3_plot_nonzero_good_econ, h3_plot_nonzero_bad_econ, ncol = 2,
+                         top = "H3: Effect Split by Economic Condition (Non-Zero Values Only)")
+}
+
+# ============================================================================
+# 3. Additional Models and Interaction Analysis
+# ============================================================================
+
+# Simpler interaction model for GDP growth
+h3_gdp_simple_int <- lm(
+  miljø_afhængig ~ lagged_i_parlament * high_gdp_growth + centered_lagged_pervote_samlet,
+  data = final_dataset
+)
+summary(h3_gdp_simple_int)
+
+# Simpler interaction model for economic condition
+h3_econ_simple_int <- lm(
+  miljø_afhængig ~ lagged_i_parlament * good_economy + centered_lagged_pervote_samlet,
+  data = final_dataset
+)
+summary(h3_econ_simple_int)
+
+# Triple interaction with GDP
+h3_gdp_triple <- lm(
+  miljø_afhængig ~ lagged_i_parlament * high_gdp_growth * centered_lagged_pervote_samlet,
+  data = final_dataset
+)
+summary(h3_gdp_triple)
+
+# Triple interaction with economic condition
+h3_econ_triple <- lm(
+  miljø_afhængig ~ lagged_i_parlament * good_economy * centered_lagged_pervote_samlet,
+  data = final_dataset
+)
+summary(h3_econ_triple)
+
+# IV estimation with interaction with GDP growth
+h3_iv_gdp <- ivreg(miljø_afhængig ~ lagged_i_parlament * high_gdp_growth | 
+                  centered_lagged_pervote_samlet * high_gdp_growth, 
+                 data = final_dataset)
+summary(h3_iv_gdp, diagnostics = TRUE)
+
+# IV estimation with interaction with economic condition
+h3_iv_econ <- ivreg(miljø_afhængig ~ lagged_i_parlament * good_economy | 
+                   centered_lagged_pervote_samlet * good_economy, 
+                  data = final_dataset)
+summary(h3_iv_econ, diagnostics = TRUE)
+
+# ============================================================================
+# 4. Visual Interaction Effects and Predictions
+# ============================================================================
+
+# Visual comparison of GDP growth interaction effects
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("tidyr", quietly = TRUE)) {
+  # Make predictions based on the model
+  pred_data_gdp <- expand.grid(
+    high_gdp_growth = c(0, 1),
+    centered_lagged_pervote_samlet = seq(-5, 5, by = 0.5),
+    lagged_i_parlament = c(0, 1)
+  )
+  
+  pred_data_gdp$predicted <- predict(h3_gdp_triple, newdata = pred_data_gdp)
+  
+  # Add factors for nicer labels
+  pred_data_gdp$gdp_status <- factor(pred_data_gdp$high_gdp_growth, 
+                                   levels = c(0, 1),
+                                   labels = c("Lav BNP-vækst", "Høj BNP-vækst"))
+  
+  pred_data_gdp$gp_status <- factor(pred_data_gdp$lagged_i_parlament,
+                                  levels = c(0, 1),
+                                  labels = c("Grønt parti uden sæde", "Grønt parti med sæde"))
+  
+  # Plot the interaction
+  ggplot2::ggplot(pred_data_gdp, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                            y = predicted, 
+                                            color = gp_status, 
+                                            linetype = gp_status)) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~ gdp_status) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = "H3: Forudsagt klimaposition baseret på BNP-vækst",
+      x = "Grønt partis stemmeandel (centreret ved tærskel)",
+      y = "Forudsagt klimaposition",
+      color = "Grønt parti status",
+      linetype = "Grønt parti status"
+    )
+}
+
+# Visual comparison of economic index interaction effects
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("tidyr", quietly = TRUE)) {
+  # Make predictions based on the model
+  pred_data_econ <- expand.grid(
+    good_economy = c(0, 1),
+    centered_lagged_pervote_samlet = seq(-5, 5, by = 0.5),
+    lagged_i_parlament = c(0, 1)
+  )
+  
+  pred_data_econ$predicted <- predict(h3_econ_triple, newdata = pred_data_econ)
+  
+  # Add factors for nicer labels
+  pred_data_econ$economy_status <- factor(pred_data_econ$good_economy, 
+                                        levels = c(0, 1),
+                                        labels = c("Poor Economic Conditions", "Good Economic Conditions"))
+  
+  pred_data_econ$gp_status <- factor(pred_data_econ$lagged_i_parlament,
+                                   levels = c(0, 1),
+                                   labels = c("Green Party w/o Seats", "Green Party w/ Seats"))
+  
+  # Plot the interaction
+  ggplot2::ggplot(pred_data_econ, ggplot2::aes(x = centered_lagged_pervote_samlet, 
+                                             y = predicted, 
+                                             color = gp_status, 
+                                             linetype = gp_status)) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~ economy_status) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = "H3: Predicted Climate Position Based on Economic Conditions",
+      x = "Green Party Vote Share (centered at threshold)",
+      y = "Predicted Climate Position",
+      color = "Green Party Status",
+      linetype = "Green Party Status"
+    )
+}
+
+# ============================================================================
+# 5. Comparison Summary Tables
+# ============================================================================
+
+# Create tables to compare coefficients across different model specifications
+if (requireNamespace("texreg", quietly = TRUE)) {
+  library(texreg)
+  
+  # GDP Growth comparison
+  htmlreg(list(h3_continuous_high_gdp, h3_continuous_low_gdp, 
+              h3_median_rq_high_gdp, h3_median_rq_low_gdp,
+              h3_robust_reg_high_gdp, h3_robust_reg_low_gdp),
+         file = "h3_gdp_model_comparison.html",
+         custom.model.names = c("OLS High GDP", "OLS Low GDP", 
+                               "Median High GDP", "Median Low GDP", 
+                               "Robust High GDP", "Robust Low GDP"),
+         custom.coef.names = c("Intercept", "Vote Share", "Parliament", "Vote Share × Parliament"),
+         caption = "Comparison of Different Modeling Approaches for H3 by GDP Growth")
+  
+  # Economic Condition comparison
+  htmlreg(list(h3_continuous_good_econ, h3_continuous_bad_econ, 
+              h3_median_rq_good_econ, h3_median_rq_bad_econ,
+              h3_robust_reg_good_econ, h3_robust_reg_bad_econ),
+         file = "h3_econ_model_comparison.html",
+         custom.model.names = c("OLS Good Econ", "OLS Bad Econ", 
+                               "Median Good Econ", "Median Bad Econ", 
+                               "Robust Good Econ", "Robust Bad Econ"),
+         custom.coef.names = c("Intercept", "Vote Share", "Parliament", "Vote Share × Parliament"),
+         caption = "Comparison of Different Modeling Approaches for H3 by Economic Conditions")
+}
+
+# Lav comparison plot for økonomiske forhold
+economy_comparison_plot <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("God økonomisk tilstand", "Dårlig økonomisk tilstand"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,  # Lineær model for enkelhed
+  covariates = c("country", "edate"),
+  title = "H3: Effekt af grønne partier modereret af økonomiske forhold"
+)
+
+# Vis plottet
+print(economy_comparison_plot)
+
+# Sammenligning med forskellige polynomiske grader
+economy_comparison_plot_p1 <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("God økonomisk tilstand", "Dårlig økonomisk tilstand"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,
+  covariates = c("country", "edate"),
+  title = "H3: Effekt af grønne partier (polynomisk grad 1)"
+)
+
+economy_comparison_plot_p2 <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("God økonomisk tilstand", "Dårlig økonomisk tilstand"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 2,
+  covariates = c("country", "edate"),
+  title = "H3: Effekt af grønne partier (polynomisk grad 2)"
+)
+
+# Kombiner plots i grid
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  economy_poly_comparison <- gridExtra::grid.arrange(
+    economy_comparison_plot_p1, economy_comparison_plot_p2,
+    ncol = 2,
+    top = "H3: Effekt af grønne partier modereret af økonomiske forhold"
+  )
+  
+  # Gem det kombinerede plot
+  ggsave("h3_economy_polynomial_comparison.png", economy_poly_comparison, width = 12, height = 6, dpi = 300)
+}
+
+# Alternativt plot med GDP vækst som moderator (hvis du vil have begge indikatorer)
+# Opdel data baseret på BNP-vækst
+data_high_gdp <- subset(clean_data, high_gdp_growth == 1)
+data_low_gdp <- subset(clean_data, high_gdp_growth == 0)
+
+# Lav comparison plot for BNP-vækst
+gdp_comparison_plot <- compare_coefficient_stability(
+  data_list = list(data_high_gdp, data_low_gdp),
+  labels = c("Høj BNP-vækst", "Lav BNP-vækst"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,
+  covariates = c("country", "edate"),
+  title = "H3: Effekt af grønne partier modereret af BNP-vækst"
+)
+
+# Kombiner begge økonomiske moderatorer i ét samlet plot for sammenligning
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  economic_indicators_comparison <- gridExtra::grid.arrange(
+    economy_comparison_plot, gdp_comparison_plot,
+    ncol = 2,
+    top = "H3: Sammenligning af forskellige økonomiske moderatorer"
+  )
+  
+  # Gem sammenligningen
+  ggsave("h3_economic_indicators_comparison.png", economic_indicators_comparison, width = 12, height = 6, dpi = 300)
