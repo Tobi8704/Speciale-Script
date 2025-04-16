@@ -1199,10 +1199,6 @@ h4_test_summary <- data.frame(
     h4_left_density_summary$p_value,
     h4_right_density_summary$p_value
   ),
-  Permutation_p_value = c(
-    h4_left_permutation$p_value_effect,
-    h4_right_permutation$p_value_effect
-  )
 )
 
 # Print and save summary table
@@ -1484,240 +1480,7 @@ if (requireNamespace("knitr", quietly = TRUE)) {
 write.csv(h5_large_balance_results, "h5_large_balance_results.csv", row.names = FALSE)
 write.csv(h5_small_balance_results, "h5_small_balance_results.csv", row.names = FALSE)
 
-# 5.8 Permutation Tests for H5 (Party Size) ----------------
-h5_large_permutation <- run_permutation_test(
-  data = large_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  polynomial = 1,
-  bandwidth = 2,
-  n_permutations = 500,
-  covariates = c("country", "edate")
-)
-
-h5_small_permutation <- run_permutation_test(
-  data = small_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  polynomial = 1,
-  bandwidth = 2,
-  n_permutations = 500,
-  covariates = c("country", "edate")
-)
-
-# Plot permutation test results
-h5_large_permutation_plot <- plot_permutation_test(
-  h5_large_permutation,
-  title = "H5: Permutation Test (Large Parties)"
-)
-
-h5_small_permutation_plot <- plot_permutation_test(
-  h5_small_permutation,
-  title = "H5: Permutation Test (Small Parties)"
-)
-
-# Save permutation plots
-ggsave("h5_large_permutation.png", plot = h5_large_permutation_plot, width = 8, height = 6, dpi = 300)
-ggsave("h5_small_permutation.png", plot = h5_small_permutation_plot, width = 8, height = 6, dpi = 300)
-
-# 5.9 Two-Part Model for Zero-Inflation in H5 (Party Size) ----------------
-h5_large_two_part <- create_two_part_model_visualization(
-  data = large_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  polynomial = 1,
-  bandwidth = 2,
-  covariates = c("country", "edate")
-)
-
-h5_small_two_part <- create_two_part_model_visualization(
-  data = small_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  polynomial = 1,
-  bandwidth = 2,
-  covariates = c("country", "edate")
-)
-
-# Save two-part model plots
-ggsave("h5_large_two_part.png", plot = h5_large_two_part, width = 10, height = 8, dpi = 300)
-ggsave("h5_small_two_part.png", plot = h5_small_two_part, width = 10, height = 8, dpi = 300)
-
-# 5.10 Quantile Regression Analysis for H5 (Party Size) ----------------
-h5_large_quantile_effect <- create_quantile_effect_plot(
-  data = large_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  quantiles = seq(0.1, 0.9, by = 0.1),
-  covariates = c("country", "edate"),
-  title = "H5: Heterogeneous Effects Across Quantiles (Large Parties)"
-)
-
-h5_small_quantile_effect <- create_quantile_effect_plot(
-  data = small_parties,
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  treatment_var = "lagged_i_parlament",
-  quantiles = seq(0.1, 0.9, by = 0.1),
-  covariates = c("country", "edate"),
-  title = "H5: Heterogeneous Effects Across Quantiles (Small Parties)"
-)
-
-# Save quantile effects plots
-ggsave("h5_large_quantile_effects.png", plot = h5_large_quantile_effect, width = 10, height = 6, dpi = 300)
-ggsave("h5_small_quantile_effects.png", plot = h5_small_quantile_effect, width = 10, height = 6, dpi = 300)
-
-
-# 5.11 Kernel Sensitivity for H5 (Party Size) ----------------
-# Test sensitivity to different kernel functions
-kernels <- c("triangular", "uniform", "epanechnikov")
-
-# Large Parties
-h5_large_kernel_results <- data.frame(
-  Kernel = character(),
-  Estimate = numeric(),
-  SE = numeric(),
-  P_value = numeric()
-)
-
-for (k in kernels) {
-  tryCatch({
-    kernel_test <- rdrobust(
-      y = large_parties$miljø_afhængig,
-      x = large_parties$centered_lagged_pervote_samlet,
-      c = 0,
-      p = 1,
-      kernel = k,
-      h = 2
-    )
-    h5_large_kernel_results <- rbind(h5_large_kernel_results, data.frame(
-      Kernel = k,
-      Estimate = kernel_test$Estimate[1],
-      SE = kernel_test$se[1],
-      P_value = kernel_test$pv[1]
-    ))
-  }, error = function(e) {
-    cat("Error with kernel", k, "for large parties:", e$message, "\n")
-  })
-}
-
-# Small Parties
-h5_small_kernel_results <- data.frame(
-  Kernel = character(),
-  Estimate = numeric(),
-  SE = numeric(),
-  P_value = numeric()
-)
-
-for (k in kernels) {
-  tryCatch({
-    kernel_test <- rdrobust(
-      y = small_parties$miljø_afhængig,
-      x = small_parties$centered_lagged_pervote_samlet,
-      c = 0,
-      p = 1,
-      kernel = k,
-      h = 2
-    )
-    h5_small_kernel_results <- rbind(h5_small_kernel_results, data.frame(
-      Kernel = k,
-      Estimate = kernel_test$Estimate[1],
-      SE = kernel_test$se[1],
-      P_value = kernel_test$pv[1]
-    ))
-  }, error = function(e) {
-    cat("Error with kernel", k, "for small parties:", e$message, "\n")
-  })
-}
-
-# Print and save kernel sensitivity results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h5_large_kernel_results, caption = "H5: Kernel Sensitivity (Large Parties)")
-  knitr::kable(h5_small_kernel_results, caption = "H5: Kernel Sensitivity (Small Parties)")
-}
-
-write.csv(h5_large_kernel_results, "h5_large_kernel_sensitivity.csv", row.names = FALSE)
-write.csv(h5_small_kernel_results, "h5_small_kernel_sensitivity.csv", row.names = FALSE)
-
-# 5.12 Donut-Hole RDD for H5 (Party Size) ----------------
-# Remove observations very close to threshold
-donut_sizes <- c(0.1, 0.2, 0.3)
-
-# Large Parties
-h5_large_donut_results <- data.frame(
-  Donut_Size = numeric(),
-  Estimate = numeric(),
-  SE = numeric(),
-  P_value = numeric()
-)
-
-for (d in donut_sizes) {
-  donut_data <- subset(large_parties, abs(centered_lagged_pervote_samlet) > d)
-  tryCatch({
-    donut_test <- rdrobust(
-      y = donut_data$miljø_afhængig,
-      x = donut_data$centered_lagged_pervote_samlet,
-      c = 0,
-      p = 1,
-      kernel = "triangular",
-      h = 2
-    )
-    h5_large_donut_results <- rbind(h5_large_donut_results, data.frame(
-      Donut_Size = d,
-      Estimate = donut_test$Estimate[1],
-      SE = donut_test$se[1],
-      P_value = donut_test$pv[1]
-    ))
-  }, error = function(e) {
-    cat("Error with donut size", d, "for large parties:", e$message, "\n")
-  })
-}
-
-# Small Parties
-h5_small_donut_results <- data.frame(
-  Donut_Size = numeric(),
-  Estimate = numeric(),
-  SE = numeric(),
-  P_value = numeric()
-)
-
-for (d in donut_sizes) {
-  donut_data <- subset(small_parties, abs(centered_lagged_pervote_samlet) > d)
-  tryCatch({
-    donut_test <- rdrobust(
-      y = donut_data$miljø_afhængig,
-      x = donut_data$centered_lagged_pervote_samlet,
-      c = 0,
-      p = 1,
-      kernel = "triangular",
-      h = 2
-    )
-    h5_small_donut_results <- rbind(h5_small_donut_results, data.frame(
-      Donut_Size = d,
-      Estimate = donut_test$Estimate[1],
-      SE = donut_test$se[1],
-      P_value = donut_test$pv[1]
-    ))
-  }, error = function(e) {
-    cat("Error with donut size", d, "for small parties:", e$message, "\n")
-  })
-}
-
-# Print and save donut hole results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h5_large_donut_results, caption = "H5: Donut-Hole RDD Results (Large Parties)")
-  knitr::kable(h5_small_donut_results, caption = "H5: Donut-Hole RDD Results (Small Parties)")
-}
-
-write.csv(h5_large_donut_results, "h5_large_donut_results.csv", row.names = FALSE)
-write.csv(h5_small_donut_results, "h5_small_donut_results.csv", row.names = FALSE)
-
-# 5.13 Visual RDD Plots for H5 (Party Size) ----------------
+# 5.8 Visual RDD Plots for H5 (Party Size) ----------------
 # Create clear RDD plots for main paper
 h5_large_rdd_plot <- plot_rdd(
   data = large_parties,
@@ -1768,7 +1531,7 @@ h5_small_rdd_zoom <- jump_plot_cutoff(
 ggsave("h5_large_rdd_zoom.png", plot = h5_large_rdd_zoom, width = 10, height = 6, dpi = 300)
 ggsave("h5_small_rdd_zoom.png", plot = h5_small_rdd_zoom, width = 10, height = 6, dpi = 300)
 
-# 5.14 Combined Visual Comparison for H5 ----------------
+# 5.9 Combined Visual Comparison for H5 ----------------
 # Combine size plots in a single figure
 if (requireNamespace("gridExtra", quietly = TRUE)) {
   h5_size_combined <- gridExtra::grid.arrange(
@@ -1781,7 +1544,7 @@ if (requireNamespace("gridExtra", quietly = TRUE)) {
   ggsave("h5_size_combined.png", plot = h5_size_combined, width = 12, height = 6, dpi = 300)
 }
 
-# 5.15 Outcome Placebo Tests for H5 (Party Size) ----------------
+# 5.10 Outcome Placebo Tests for H5 (Party Size) ----------------
 # Using variables that shouldn't be affected by treatment
 placebo_vars <- c("rile_lowe", "per410") 
 
@@ -1819,7 +1582,7 @@ h5_small_outcome_placebo_plot <- plot_outcome_placebo_test(
 
 ggsave("h5_large_outcome_placebo.png", plot = h5_large_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 
-# 5.16 Summary of Test Results for H5 ----------------
+# 5.11 Summary of Test Results for H5 ----------------
 # Create summary table of all H5 test results
 h5_test_summary <- data.frame(
   Subgroup = c(
@@ -1860,10 +1623,6 @@ h5_test_summary <- data.frame(
     h5_large_density_summary$p_value,
     h5_small_density_summary$p_value
   ),
-  Permutation_p_value = c(
-    h5_large_permutation$p_value_effect,
-    h5_small_permutation$p_value_effect
-  )
 )
 
 # Print and save summary table
@@ -1874,7 +1633,7 @@ if (requireNamespace("knitr", quietly = TRUE)) {
 
 write.csv(h5_test_summary, "h5_test_summary.csv", row.names = FALSE)
 
-# 5.17 Compare treatment effects across party sizes ----------------
+# 5.12 Compare treatment effects across party sizes ----------------
 # Extract main estimates and create comparison plot
 h5_comparison_data <- data.frame(
   Size = c("Large Parties", "Small Parties"),
