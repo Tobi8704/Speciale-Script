@@ -1,8 +1,8 @@
 # 0. Klargør Data ----------------
 
 # Opdel data baseret på BNP-vækst
-h3_high_gdp <- subset(final_dataset, high_gdp_growth == 1)
-h3_low_gdp <- subset(final_dataset, high_gdp_growth == 0)
+h3_high_gdp <- subset(final_dataset, high_gdp_growth_lag1 == 1)
+h3_low_gdp <- subset(final_dataset, high_gdp_growth_lag1 == 0)
 
 # 1. VISUAL INSPECTION OF THE DISCONTINUITY ----------------
 
