@@ -67,173 +67,525 @@ filter_european_countries <- function(data, country_col = "country_name") {
 }
 
 # Funktion til at udføre robusthedstest med forskellige båndbredder
-run_rdd_robustness <- function(data, 
+run_rdd_interaction <- function(data, 
                               outcome_var = "miljø_afhængig",
                               running_var = "centered_lagged_pervote_samlet", 
+                              interaction_var = NULL,
                               bw_list = c(1, 1.5, 2, 2.5, 3),
-                              polynomials = c(1, 2, 3, 4),
+                              polynomial_list = c(1),  # Nu muligt at angive flere polynomgrader
                               cutpoint = 0,
-                              covariates = NULL,
                               group_label = "") {
   
-  # Tom liste til resultater
-  all_results <- list()
-  
-  # Håndtering af kovariater
-  if (!is.null(covariates)) {
-    # Opret kovariat-matrix på forhånd
-    covs_matrix <- NULL
-    if (length(covariates) > 0) {
-      # Forsøg at bygge kovariat-matrix manuelt
-      covs_list <- list()
-      for (i in 1:length(covariates)) {
-        col_name <- covariates[i]
-        if (col_name %in% names(data)) {
-          covs_list[[i]] <- data[[col_name]]
-        } else {
-          warning(paste("Kolonne", col_name, "findes ikke i datasættet."))
-          covs_list[[i]] <- NULL
-        }
-      }
-      # Fjern NULL værdier
-      covs_list <- covs_list[!sapply(covs_list, is.null)]
-      
-      # Hvis der er nogen kovariater tilbage, lav en matrix
-      if (length(covs_list) > 0) {
-        covs_matrix <- do.call(cbind, covs_list)
-      }
-    }
-  } else {
-    covs_matrix <- NULL
+  # Check if interaction variable exists
+  if (is.null(interaction_var) || !interaction_var %in% names(data)) {
+    stop("Interaction variable not found in the dataset")
   }
   
-  # Loop over polynomier
-  for (p in polynomials) {
+  cat("Running RDD interaction analysis with", interaction_var, "\n")
+  
+  # Get unique values of interaction variable (typically 0 and 1)
+  unique_values <- sort(unique(data[[interaction_var]][!is.na(data[[interaction_var]])]))
+  cat("Found", length(unique_values), "unique values:", paste(unique_values, collapse=", "), "\n")
+  
+  # Initialize results list
+  results_list <- list()
+  
+  # For each polynomial order
+  for (poly in polynomial_list) {
+    cat("Analyzing with polynomial degree", poly, "\n")
     
-    # HVIS p <= 2, laver vi 'ikke-parametrisk' med faste båndbredder
-    if (p <= 2) {
+    # For each value of the interaction variable
+    for (val in unique_values) {
+      # Subset data
+      subset_data <- data[data[[interaction_var]] == val & !is.na(data[[interaction_var]]), ]
       
-      # Loop over båndbredder
+      cat("Analyzing subset where", interaction_var, "=", val, 
+          "with", nrow(subset_data), "observations\n")
+      
+      # For each bandwidth
       for (bw in bw_list) {
-        # Prøv at køre rdrobust med fejlhåndtering
         tryCatch({
-          # Kør rdrobust uden kovariater
-          if (is.null(covs_matrix)) {
-            rd <- rdrobust(
-              y = data[[outcome_var]],
-              x = data[[running_var]],
-              c = cutpoint,
-              p = p,
-              h = bw
-            )
-          } else {
-            # Kør rdrobust med kovariater
-            rd <- rdrobust(
-              y = data[[outcome_var]],
-              x = data[[running_var]],
-              c = cutpoint,
-              p = p,
-              h = bw,
-              covs = covs_matrix
-            )
-          }
-          
-          # Gem KUN conventional-estimatet: [1]
-          tmp <- data.frame(
-            Bandwidth    = bw,
-            Polynomial   = p,
-            LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
-            StdErr       = formatC(rd$se[1], format = "f", digits = 4),
-            p_value      = formatC(rd$pv[1], format = "f", digits = 4),
-            N_left_of_c  = rd$N_h[1],
-            N_right_of_c = rd$N_h[2]
+          # Run simple RDD
+          rd_result <- rdrobust(
+            y = subset_data[[outcome_var]],
+            x = subset_data[[running_var]],
+            c = cutpoint,
+            p = poly,
+            h = bw
           )
           
-          # Tilføj en kolonne med p-værdi-stjerner
-          tmp$p_value_star <- paste0(
-            tmp$p_value,
-            ifelse(as.numeric(tmp$p_value) < 0.01, "***",
-                   ifelse(as.numeric(tmp$p_value) < 0.05, "**",
-                          ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+          # Create result row
+          result <- data.frame(
+            Interaction_Value = val,
+            Polynomial = poly,
+            Bandwidth = bw,
+            Estimate = rd_result$Estimate[1],
+            Std_Error = rd_result$se[1],
+            P_value = rd_result$pv[1],
+            CI_lower = rd_result$ci[1,1],
+            CI_upper = rd_result$ci[1,2],
+            N_left = rd_result$N_h[1],
+            N_right = rd_result$N_h[2]
           )
           
-          # Læg i listen over resultater
-          all_results[[paste0("p", p, "_bw", bw)]] <- tmp
+          # Add to results list
+          results_list[[length(results_list) + 1]] <- result
           
         }, error = function(e) {
-          warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og bw =", bw, ":", e$message))
+          cat("Error for", interaction_var, "=", val, "with bandwidth =", bw, ":", e$message, "\n")
         })
       }
-      
-    } else {
-      # HVIS p > 2, laver vi "global" og sætter h = NULL (eller en meget stor værdi)
-      tryCatch({
-        # Kør rdrobust uden kovariater
-        if (is.null(covs_matrix)) {
-          rd <- rdrobust(
-            y = data[[outcome_var]],
-            x = data[[running_var]],
-            c = cutpoint,
-            p = p,
-            h = NULL   # lader rdrobust selv vælge båndbredde
-          )
-        } else {
-          # Kør rdrobust med kovariater
-          rd <- rdrobust(
-            y = data[[outcome_var]],
-            x = data[[running_var]],
-            c = cutpoint,
-            p = p,
-            h = NULL,   # lader rdrobust selv vælge båndbredde
-            covs = covs_matrix
-          )
-        }
-        
-        # Gem KUN conventional-estimatet: [1]
-        tmp <- data.frame(
-          Bandwidth    = NA,  # "Global" => ingen fastsat h
-          Polynomial   = p,
-          LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
-          StdErr       = formatC(rd$se[1], format = "f", digits = 4),
-          p_value      = formatC(rd$pv[1], format = "f", digits = 4),
-          N_left_of_c  = rd$N_h[1],
-          N_right_of_c = rd$N_h[2]
-        )
-        
-        # Tilføj en kolonne med p-værdi-stjerner
-        tmp$p_value_star <- paste0(
-          tmp$p_value,
-          ifelse(as.numeric(tmp$p_value) < 0.01, "***",
-                 ifelse(as.numeric(tmp$p_value) < 0.05, "**",
-                        ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
-        )
-        
-        # Læg i listen
-        all_results[[paste0("p", p, "_global")]] <- tmp
-        
-      }, error = function(e) {
-        warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og global båndbredde:", e$message))
-      })
     }
   }
   
-  # Bind alle resultaterne sammen, men tjek at vi har nogle resultater
-  if (length(all_results) > 0) {
-    results_df <- do.call(rbind, all_results)
-    
-    # Tilføj en kolonne med gruppelabel, hvis angivet
-    if (group_label != "") {
-      results_df$Group <- group_label
-    }
-    
-    return(results_df)
-  } else {
-    warning("Ingen resultater produceret. Tjek data og parametre.")
+  # Check if we have results
+  if (length(results_list) == 0) {
+    cat("No valid results produced\n")
     return(NULL)
   }
+  
+  # Combine all results
+  results <- do.call(rbind, results_list)
+  
+  # Calculate differences between interaction values
+  if (length(unique_values) == 2) {
+    cat("Calculating differences between interaction values\n")
+    
+    # Group by polynomial and bandwidth
+    for (poly in polynomial_list) {
+      for (bw in bw_list) {
+        # Get estimates for both values at this polynomial and bandwidth
+        est_0 <- results$Estimate[results$Interaction_Value == unique_values[1] & 
+                                 results$Polynomial == poly &
+                                 results$Bandwidth == bw]
+        est_1 <- results$Estimate[results$Interaction_Value == unique_values[2] & 
+                                 results$Polynomial == poly &
+                                 results$Bandwidth == bw]
+        
+        se_0 <- results$Std_Error[results$Interaction_Value == unique_values[1] & 
+                                 results$Polynomial == poly &
+                                 results$Bandwidth == bw]
+        se_1 <- results$Std_Error[results$Interaction_Value == unique_values[2] & 
+                                 results$Polynomial == poly &
+                                 results$Bandwidth == bw]
+        
+        # Only calculate if we have both estimates
+        if (length(est_0) == 1 && length(est_1) == 1) {
+          # Difference
+          diff_est <- est_1 - est_0
+          
+          # Standard error of difference (assuming independence)
+          diff_se <- sqrt(se_0^2 + se_1^2)
+          
+          # Calculate p-value
+          z_stat <- diff_est / diff_se
+          diff_p <- 2 * (1 - pnorm(abs(z_stat)))
+          
+          # Calculate confidence intervals
+          diff_ci_lower <- diff_est - 1.96 * diff_se
+          diff_ci_upper <- diff_est + 1.96 * diff_se
+          
+          # Create result row
+          diff_row <- data.frame(
+            Interaction_Value = "Difference",
+            Polynomial = poly,
+            Bandwidth = bw,
+            Estimate = diff_est,
+            Std_Error = diff_se,
+            P_value = diff_p,
+            CI_lower = diff_ci_lower,
+            CI_upper = diff_ci_upper,
+            N_left = NA,
+            N_right = NA
+          )
+          
+          # Add to results
+          results <- rbind(results, diff_row)
+        }
+      }
+    }
+  }
+  
+  # Add group label if provided
+  if (group_label != "") {
+    results$Group <- group_label
+  }
+  
+  # Add interaction variable name
+  results$Interaction_Variable <- interaction_var
+  
+  # Add significance stars
+  results$Stars <- ifelse(results$P_value < 0.01, "***",
+                        ifelse(results$P_value < 0.05, "**",
+                               ifelse(results$P_value < 0.1, "*", "")))
+  
+  # Add formatted estimate with stars
+  results$Formatted <- paste0(sprintf("%.3f", results$Estimate), results$Stars, 
+                            " (", sprintf("%.3f", results$Std_Error), ")")
+  
+  cat("Analysis complete with", nrow(results), "result rows\n")
+  return(results)
 }
 
+pretty_print_rdd_results <- function(results, digits = 3, show_ci = FALSE) {
+  # Kopier resultater til en ny dataframe, så vi ikke ændrer den originale
+  pretty_results <- results
+  
+  # Rund numeriske kolonner til angivet antal decimaler
+  numeric_cols <- c("Estimate", "Std_Error", "P_value", "CI_lower", "CI_upper")
+  for (col in numeric_cols) {
+    if (col %in% names(pretty_results)) {
+      pretty_results[[col]] <- round(pretty_results[[col]], digits)
+    }
+  }
+  
+  # Formatér resultater pænere
+  pretty_results$Result <- sprintf("%.*f%s (%.*f)", 
+                                  digits, pretty_results$Estimate,
+                                  pretty_results$Stars,
+                                  digits, pretty_results$Std_Error)
+  
+  # Hvis vi skal vise konfidensintervaller
+  if (show_ci && all(c("CI_lower", "CI_upper") %in% names(pretty_results))) {
+    pretty_results$CI <- sprintf("[%.*f, %.*f]", 
+                                digits, pretty_results$CI_lower,
+                                digits, pretty_results$CI_upper)
+  }
+  
+  # Udvælg og omarranger kolonner
+  selected_cols <- c("Interaction_Value")
+  
+  # Tilføj Polynomial kolonne hvis den findes
+  if ("Polynomial" %in% names(pretty_results)) {
+    selected_cols <- c(selected_cols, "Polynomial")
+  }
+  
+  # Tilføj resten af kolonnerne
+  selected_cols <- c(selected_cols, "Bandwidth", "Result")
+  if (show_ci) {
+    selected_cols <- c(selected_cols, "CI")
+  }
+  selected_cols <- c(selected_cols, "P_value", "N_left", "N_right", "Group")
+  
+  # Kun vælg kolonner der faktisk findes i dataframen
+  selected_cols <- selected_cols[selected_cols %in% names(pretty_results)]
+  
+  # Returner den opryddede dataframe
+  return(pretty_results[, selected_cols])
+}
 
+# Funktion til at gemme resultater i pæn tabel
+save_rdd_table <- function(results, filename, digits = 3, show_ci = FALSE) {
+  # Få pæn formatering
+  pretty_table <- pretty_print_rdd_results(results, digits, show_ci)
+  
+  # Konverter "Interaction_Value" til faktorniveauer for bedre læsbarhed
+  int_var <- unique(results$Interaction_Variable)
+  
+  if (all(pretty_table$Interaction_Value %in% c("0", "1", "Difference"))) {
+    pretty_table$Interaction_Value <- factor(
+      pretty_table$Interaction_Value,
+      levels = c("0", "1", "Difference"),
+      labels = c(paste("Uden", int_var), paste("Med", int_var), "Forskel")
+    )
+  }
+  
+  # Omdøb kolonner til dansk
+  col_map <- c(
+    "Interaction_Value" = "Gruppe",
+    "Polynomial" = "Polynomgrad",
+    "Bandwidth" = "Båndbredde",
+    "Result" = "Estimat (Std.fejl)",
+    "CI" = "95% KI",
+    "P_value" = "P-værdi",
+    "N_left" = "N_venstre",
+    "N_right" = "N_højre"
+  )
+  
+  # Omdøb kun kolonner der faktisk findes i dataframen
+  for (eng_name in names(col_map)) {
+    if (eng_name %in% names(pretty_table)) {
+      names(pretty_table)[names(pretty_table) == eng_name] <- col_map[eng_name]
+    }
+  }
+  
+  # Gem som CSV-fil
+  write.csv(pretty_table, file = filename, row.names = FALSE)
+  
+  # Returner også den pæne tabel
+  return(pretty_table)
+}
+
+run_rdd_optimal_bw <- function(data, 
+                               outcome_var = "miljø_afhængig",
+                               running_var = "centered_lagged_pervote_samlet",
+                               interaction_var = NULL,
+                               cutpoint = 0,
+                               group_label = "") {
+  
+  # Tjek om interaktionsvariabel eksisterer
+  if (!is.null(interaction_var) && !interaction_var %in% names(data)) {
+    stop("Interaktionsvariabel findes ikke i datasættet")
+  }
+  
+  # Liste til resultater
+  results_list <- list()
+  
+  # Definer polynomgrader
+  polynomial_list <- c(1, 2, 3, 4)
+  
+  # Definer båndbreddetyper
+  bw_types <- c("mserd", "msetwo", "msesum", "cerrd", "certwo", "cersum")
+  
+  # Hvis der er en interaktionsvariabel
+  if (!is.null(interaction_var)) {
+    # Find unikke værdier (typisk 0 og 1)
+    unique_values <- sort(unique(data[[interaction_var]][!is.na(data[[interaction_var]])]))
+    cat("Kører analyse med interaktionsvariabel:", interaction_var, 
+        "med værdierne:", paste(unique_values, collapse=", "), "\n")
+    
+    # For hver værdi af interaktionsvariablen
+    for (val in unique_values) {
+      # Subset data
+      subset_data <- data[data[[interaction_var]] == val & !is.na(data[[interaction_var]]), ]
+      
+      cat("Analyserer subset hvor", interaction_var, "=", val, 
+          "med", nrow(subset_data), "observationer\n")
+      
+      # For hver polynomgrad
+      for (poly in polynomial_list) {
+        cat("  Polynomgrad:", poly, "\n")
+        
+        # For hver båndbreddetype (kun én for simpelhedens skyld)
+        bw_type <- "mserd"  # Standardtypen for båndbredde
+        
+        tryCatch({
+          # Kør RDD med optimal båndbredde
+          rd_result <- rdrobust(
+            y = subset_data[[outcome_var]],
+            x = subset_data[[running_var]],
+            c = cutpoint,
+            p = poly,
+            bwselect = bw_type
+          )
+          
+          # Opret resultatrække
+          result <- data.frame(
+            Interaction_Value = val,
+            Polynomial = poly,
+            Bandwidth = rd_result$bws[1],  # Optimal båndbredde venstre side
+            Bandwidth_Right = rd_result$bws[2],  # Optimal båndbredde højre side (hvis asymmetrisk)
+            Estimate = rd_result$Estimate[1],  # Conventional estimatet
+            Std_Error = rd_result$se[1],
+            P_value = rd_result$pv[1],
+            CI_lower = rd_result$ci[1,1],
+            CI_upper = rd_result$ci[1,2],
+            N_left = rd_result$N_h[1],
+            N_right = rd_result$N_h[2],
+            N_total = nrow(subset_data),
+            BW_Type = bw_type,
+            NPoly = ifelse(poly <= 2, "Ikke-parametrisk", "Parametrisk")
+          )
+          
+          # Tilføj til resultatliste
+          results_list[[length(results_list) + 1]] <- result
+          
+        }, error = function(e) {
+          cat("Fejl for", interaction_var, "=", val, "med polynomial =", poly, ":", e$message, "\n")
+        })
+      }
+    }
+    
+    # Kombiner resultater
+    if (length(results_list) > 0) {
+      results <- do.call(rbind, results_list)
+      
+      # Beregn forskelle mellem værdierne af interaktionsvariablen
+      if (length(unique_values) == 2) {
+        cat("Beregner forskelle mellem interaktionsværdierne\n")
+        
+        # For hver polynomgrad
+        for (poly in polynomial_list) {
+          # Hent estimater for begge værdier ved denne polynomgrad
+          est_0 <- results$Estimate[results$Interaction_Value == unique_values[1] & 
+                                   results$Polynomial == poly]
+          est_1 <- results$Estimate[results$Interaction_Value == unique_values[2] & 
+                                   results$Polynomial == poly]
+          
+          se_0 <- results$Std_Error[results$Interaction_Value == unique_values[1] & 
+                                   results$Polynomial == poly]
+          se_1 <- results$Std_Error[results$Interaction_Value == unique_values[2] & 
+                                   results$Polynomial == poly]
+          
+          # Kun beregn hvis vi har begge estimater
+          if (length(est_0) == 1 && length(est_1) == 1) {
+            # Forskel
+            diff_est <- est_1 - est_0
+            
+            # Standardfejl på forskellen (antager uafhængighed)
+            diff_se <- sqrt(se_0^2 + se_1^2)
+            
+            # Beregn p-værdi
+            z_stat <- diff_est / diff_se
+            diff_p <- 2 * (1 - pnorm(abs(z_stat)))
+            
+            # Beregn konfidensintervaller
+            diff_ci_lower <- diff_est - 1.96 * diff_se
+            diff_ci_upper <- diff_est + 1.96 * diff_se
+            
+            # Opret resultatrække for forskellen
+            diff_row <- data.frame(
+              Interaction_Value = "Difference",
+              Polynomial = poly,
+              Bandwidth = NA,  # Ingen båndbredde for forskellen
+              Bandwidth_Right = NA,
+              Estimate = diff_est,
+              Std_Error = diff_se,
+              P_value = diff_p,
+              CI_lower = diff_ci_lower,
+              CI_upper = diff_ci_upper,
+              N_left = NA,
+              N_right = NA,
+              N_total = NA,
+              BW_Type = NA,
+              NPoly = ifelse(poly <= 2, "Ikke-parametrisk", "Parametrisk")
+            )
+            
+            # Tilføj til resultater
+            results <- rbind(results, diff_row)
+          }
+        }
+      }
+    } else {
+      cat("Ingen resultater produceret for interaktionsanalyse\n")
+      return(NULL)
+    }
+  } else {
+    # Hvis der ikke er en interaktionsvariabel, kør en simpel RDD
+    cat("Kører simpel RDD uden interaktioner\n")
+    
+    # For hver polynomgrad
+    for (poly in polynomial_list) {
+      cat("  Polynomgrad:", poly, "\n")
+      
+      # For hver båndbreddetype (kun én for simpelhedens skyld)
+      bw_type <- "mserd"  # Standardtypen for båndbredde
+      
+      tryCatch({
+        # Kør RDD med optimal båndbredde
+        rd_result <- rdrobust(
+          y = data[[outcome_var]],
+          x = data[[running_var]],
+          c = cutpoint,
+          p = poly,
+          bwselect = bw_type
+        )
+        
+        # Opret resultatrække
+        result <- data.frame(
+          Polynomial = poly,
+          Bandwidth = rd_result$bws[1],  # Optimal båndbredde venstre side
+          Bandwidth_Right = rd_result$bws[2],  # Optimal båndbredde højre side (hvis asymmetrisk)
+          Estimate = rd_result$Estimate[1],  # Conventional estimatet
+          Std_Error = rd_result$se[1],
+          P_value = rd_result$pv[1],
+          CI_lower = rd_result$ci[1,1],
+          CI_upper = rd_result$ci[1,2],
+          N_left = rd_result$N_h[1],
+          N_right = rd_result$N_h[2],
+          N_total = nrow(data),
+          BW_Type = bw_type,
+          NPoly = ifelse(poly <= 2, "Ikke-parametrisk", "Parametrisk")
+        )
+        
+        # Tilføj til resultatliste
+        results_list[[length(results_list) + 1]] <- result
+        
+      }, error = function(e) {
+        cat("Fejl for polynomial =", poly, ":", e$message, "\n")
+      })
+    }
+    
+    # Kombiner resultater
+    if (length(results_list) > 0) {
+      results <- do.call(rbind, results_list)
+    } else {
+      cat("Ingen resultater produceret for simpel RDD\n")
+      return(NULL)
+    }
+  }
+  
+  # Tilføj signifikansstjerner og formateret output
+  results$Stars <- ifelse(results$P_value < 0.01, "***",
+                        ifelse(results$P_value < 0.05, "**",
+                               ifelse(results$P_value < 0.1, "*", "")))
+  
+  results$Formatted <- paste0(sprintf("%.3f", results$Estimate), results$Stars, 
+                             " (", sprintf("%.3f", results$Std_Error), ")")
+  
+  # Tilføj gruppenavnet hvis angivet
+  if (group_label != "") {
+    results$Group <- group_label
+  }
+  
+  # Tilføj interaktionsvariablens navn hvis angivet
+  if (!is.null(interaction_var)) {
+    results$Interaction_Variable <- interaction_var
+  }
+  
+  # Returner resultaterne
+  return(results)
+}
+
+# Funktion til at printe resultaterne pænt
+print_optimal_rdd <- function(results, digits = 3) {
+  # Kopier resultater til en ny dataframe
+  pretty_results <- results
+  
+  # Rund numeriske kolonner
+  numeric_cols <- c("Bandwidth", "Bandwidth_Right", "Estimate", "Std_Error", 
+                   "P_value", "CI_lower", "CI_upper")
+  
+  for (col in numeric_cols) {
+    if (col %in% names(pretty_results)) {
+      pretty_results[[col]] <- round(pretty_results[[col]], digits)
+    }
+  }
+  
+  # Juster kolonnenavne
+  if ("Interaction_Value" %in% names(pretty_results)) {
+    int_var <- unique(pretty_results$Interaction_Variable)
+    pretty_results$Gruppe <- ifelse(
+      pretty_results$Interaction_Value == "Difference", "Forskel",
+      ifelse(pretty_results$Interaction_Value == 0, paste("Uden", int_var),
+             ifelse(pretty_results$Interaction_Value == 1, paste("Med", int_var),
+                   as.character(pretty_results$Interaction_Value)))
+    )
+  }
+  
+  # Vælg og omarranger kolonner
+  selected_cols <- c("Gruppe", "Polynomial", "NPoly", "Bandwidth", "Formatted", 
+                    "P_value", "N_left", "N_right")
+  
+  # Kun inkluder kolonner der findes
+  selected_cols <- selected_cols[selected_cols %in% names(pretty_results)]
+  
+  # Omdøb kolonner til dansk
+  result_table <- pretty_results[, selected_cols]
+  
+  names(result_table) <- ifelse(
+    names(result_table) == "Gruppe", "Gruppe",
+    ifelse(names(result_table) == "Polynomial", "Polynomgrad",
+    ifelse(names(result_table) == "NPoly", "Type",
+    ifelse(names(result_table) == "Bandwidth", "Optimal båndbredde",
+    ifelse(names(result_table) == "Formatted", "Estimat (Std.fejl)",
+    ifelse(names(result_table) == "P_value", "P-værdi",
+    ifelse(names(result_table) == "N_left", "N venstre", 
+    ifelse(names(result_table) == "N_right", "N højre", 
+           names(result_table)))))))))
+  
+  return(result_table)
+}
 
 # Function to calculate Lowe's RILE score
 calculate_rile_lowe <- function(data) {
