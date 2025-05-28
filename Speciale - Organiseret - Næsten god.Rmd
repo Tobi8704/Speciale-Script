@@ -1,10 +1,3 @@
----
-title: "Green Party Parliamentary Representation and Climate Policy"
-author: "Tobias"
-date: "`r Sys.Date()`"
-output: html_document
----
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
@@ -17,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 # Install pacman if not already installed
 if (!require("pacman")) install.packages("pacman")
 
-# Use pacman to load all required packages
 pacman::p_load(
   # Data manipulation
   dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate, quantreg, MASS,
@@ -233,8 +225,6 @@ run_rdd_robustness <- function(data,
   }
 }
 
-
-
 # Function to calculate Lowe's RILE score
 calculate_rile_lowe <- function(data) {
   right_cols <- c("per104", "per201", "per203", "per305", "per401", "per402", "per407", 
@@ -256,14 +246,6 @@ calculate_rile_lowe <- function(data) {
   data %>%
     mutate(rile_lowe = log((rowSums(dplyr::select(., dplyr::all_of(right_cols_exist)) + 0.5)) / 
                           (rowSums(dplyr::select(., dplyr::all_of(left_cols_exist)) + 0.5))))
-}
-
-# Function to calculate environmental position
-calculate_env_position <- function(data) {
-  data %>%
-    mutate(
-      miljø_afhængig = log((per416 + per501 + 0.5) / (per410 + 0.5))
-    )
 }
 
 # Function to remove duplicates based on specific columns
@@ -300,42 +282,6 @@ plot_rdd <- function(data, x_var, y_var, group_var,
     theme_minimal() +
     labs(title = title, x = x_label, y = y_label) +
     theme(legend.position = 'bottom', legend.title = element_blank())
-}
-
-# Function for zoomed-in RDD plots
-jump_plot_cutoff <- function(data, force_var, y_var, group_var, polynomial=1, window=2) {
-  # Select data within window
-  plot_data <- subset(data, abs(data[[force_var]]) <= window)
-  
-  # Create plot
-  p <- ggplot() +
-    geom_point(data = plot_data,
-              aes_string(x = force_var, y = y_var, shape = group_var),
-              size = 2) +
-    geom_smooth(data = subset(plot_data, plot_data[[force_var]] < 0),
-                aes_string(x = force_var, y = y_var),
-                method = 'lm',
-                formula = y ~ poly(x, polynomial, raw = TRUE),
-                linetype = 1,
-                color = 'black',
-                size = 1) +
-    geom_smooth(data = subset(plot_data, plot_data[[force_var]] >= 0),
-                aes_string(x = force_var, y = y_var),
-                method = 'lm',
-                formula = y ~ poly(x, polynomial, raw = TRUE),
-                linetype = 1,
-                color = 'black',
-                size = 1) +
-    scale_x_continuous(name = 'Green Party Vote Share (centered)',
-                     limits = c(-window, window),
-                     breaks = seq(-window, window, window/2)) +
-    geom_vline(xintercept = 0, linetype = 2, size = 0.6) +
-    theme_minimal() +
-    theme(legend.position = 'bottom', legend.title = element_blank()) +
-    labs(title = paste0("RDD Plot (Window = ±", window, ")"),
-         y = "Climate Position")
-  
-  return(p)
 }
 ```
 
@@ -496,11 +442,8 @@ full_dataset <- merge(
   all.x = FALSE
 )
 
-# Fjern rader hvor parfam = 10
 full_dataset <- full_dataset %>%
   filter(parfam != "10")
-
-#View(full_dataset)
 
 # Calculate Lowe's RILE score
 full_dataset <- calculate_rile_lowe(full_dataset)
@@ -592,7 +535,6 @@ final_dataset <- final_dataset %>%
   dplyr::ungroup()
 
 
-
 #GDP Per Capita
 # Forbered datasættene ved at ekstrahere årstallet fra edate
 final_dataset <- dplyr::mutate(final_dataset, 
@@ -665,10 +607,8 @@ final_dataset <- dplyr::left_join(final_dataset,
                                    by = c("countryname" = "countryname", 
                                           "Year" = "Year"))
 
-# ============================================================================
-# 0. Create economic indicators
-# ============================================================================
 
+# 0. Create economic indicators -------------------
 # Create a composite economic indicator from existing variables in final_dataset
 # Standardize each variable first (higher value = better economy)
 final_dataset <- final_dataset %>%
@@ -732,9 +672,6 @@ final_dataset <- final_dataset %>%
 
 # Create clean dataset for analysis (remove missing values)
 clean_data <- na.omit(final_dataset)
-
-#View(final_dataset)
-
 ```
 
 
@@ -776,7 +713,6 @@ summary_table <- final_dataset %>%
                      n = ~sum(!is.na(.))
                    )))
 
-# Reshape for better presentation
 summary_long <- summary_table %>%
   pivot_longer(cols = everything(),
                names_to = c("variable", "stat"),
@@ -858,7 +794,6 @@ time_coverage_plot <- ggplot(time_coverage, aes(x = Year, y = countryname, fill 
   ) +
   theme_minimal() +
   theme(legend.position = "bottom")
-
 
 
 # 2. Outcome Variable Analysis ------------
@@ -2435,10 +2370,6 @@ for (dir_name in section_dirs) {
 }
 ```
 
-#View(final_dataset %>% dplyr::select(countryname, country, edate, party, miljø_afhængig, miljø_afhængig_alt,  per416, per501, per410, lagged_i_parlament, centered_lagged_pervote_samlet))
-
-
-
 # 2.1 Robusthedstest af Miljø Afhængig
 ```{r Robusthedstest af Miljø Afhængig}
 # Tilføj KDE til robusthedsanalyse
@@ -3474,7 +3405,6 @@ h5_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhæ
                                                                  "country", 
                                                                  "edate")]), ]
 
-# Check how many observations we have now
 nrow(h5_analysis_data)
 
   # Split data based on party size
@@ -3518,7 +3448,6 @@ combined_plot_stor_lille <- grid.arrange(h5_large_plot, h5_small_plot,
 
 # Derefter bruger vi ggsave til at gemme plottet
 ggsave("Analyse/H5/comparison_green_party_stor_lille_effect.png", combined_plot_stor_lille, width = 12, height = 6)
-
 
 
 # 1.2 RDD ESTIMATION ----------------
@@ -4215,151 +4144,6 @@ h3_low_gdp_outcome_placebo_plot <- plot_outcome_placebo_test(
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_outcome_placebo.png", plot = h3_high_gdp_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_outcome_placebo.png", plot = h3_low_gdp_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 
-
-# Korrekt oprettet sammenligning af økonomiske betingelser
-# Kør hver rdrobust separat og fang eventuelle fejl
-high_gdp_rdd <- tryCatch(rdrobust(
-  y = h3_high_gdp$miljø_afhængig,
-  x = h3_high_gdp$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i High GDP RDD:", e$message, "\n")
-  return(NULL)
-})
-
-low_gdp_rdd <- tryCatch(rdrobust(
-  y = h3_low_gdp$miljø_afhængig,
-  x = h3_low_gdp$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Low GDP RDD:", e$message, "\n")
-  return(NULL)
-})
-
-good_economy_rdd <- tryCatch(rdrobust(
-  y = clean_data_good_economy$miljø_afhængig,
-  x = clean_data_good_economy$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Good Economy RDD:", e$message, "\n")
-  return(NULL)
-})
-
-bad_economy_rdd <- tryCatch(rdrobust(
-  y = clean_data_bad_economy$miljø_afhængig,
-  x = clean_data_bad_economy$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Bad Economy RDD:", e$message, "\n")
-  return(NULL)
-})
-
-# Tjek resultaterne
-cat("High GDP RDD:", ifelse(!is.null(high_gdp_rdd), "Succes", "Fejl"), "\n")
-cat("Low GDP RDD:", ifelse(!is.null(low_gdp_rdd), "Succes", "Fejl"), "\n")
-cat("Good Economy RDD:", ifelse(!is.null(good_economy_rdd), "Succes", "Fejl"), "\n")
-cat("Bad Economy RDD:", ifelse(!is.null(bad_economy_rdd), "Succes", "Fejl"), "\n")
-
-# Opret en tom dataframe til at begynde med
-h3_comparison_data <- data.frame(
-  Condition = character(),
-  Estimate = numeric(),
-  SE = numeric(),
-  P_value = numeric(),
-  stringsAsFactors = FALSE
-)
-
-# Tilføj resultater fra high GDP RDD hvis det fungerede
-if (!is.null(high_gdp_rdd)) {
-  h3_comparison_data <- rbind(h3_comparison_data, data.frame(
-    Condition = "High GDP Growth",
-    Estimate = high_gdp_rdd$Estimate[1],
-    SE = high_gdp_rdd$se[1],
-    P_value = high_gdp_rdd$pv[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Tilføj resultater fra low GDP RDD hvis det fungerede
-if (!is.null(low_gdp_rdd)) {
-  h3_comparison_data <- rbind(h3_comparison_data, data.frame(
-    Condition = "Low GDP Growth",
-    Estimate = low_gdp_rdd$Estimate[1],
-    SE = low_gdp_rdd$se[1],
-    P_value = low_gdp_rdd$pv[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Tilføj resultater fra good economy RDD hvis det fungerede
-if (!is.null(good_economy_rdd)) {
-  h3_comparison_data <- rbind(h3_comparison_data, data.frame(
-    Condition = "Good Economy",
-    Estimate = good_economy_rdd$Estimate[1],
-    SE = good_economy_rdd$se[1],
-    P_value = good_economy_rdd$pv[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Tilføj resultater fra bad economy RDD hvis det fungerede
-if (!is.null(bad_economy_rdd)) {
-  h3_comparison_data <- rbind(h3_comparison_data, data.frame(
-    Condition = "Poor Economy",
-    Estimate = bad_economy_rdd$Estimate[1],
-    SE = bad_economy_rdd$se[1],
-    P_value = bad_economy_rdd$pv[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Vis antal rækker i den endelige dataframe
-cat("Antal rækker i h3_comparison_data:", nrow(h3_comparison_data), "\n")
-
-# Beregn 95% konfidensintervaller
-h3_comparison_data$CI_lower <- h3_comparison_data$Estimate - 1.96 * h3_comparison_data$SE
-h3_comparison_data$CI_upper <- h3_comparison_data$Estimate + 1.96 * h3_comparison_data$SE
-
-# Tilføj signifikansmarkør
-h3_comparison_data$Significance <- ifelse(h3_comparison_data$P_value < 0.05, "*", 
-                                        ifelse(h3_comparison_data$P_value < 0.1, "†", ""))
-
-# Formater resultater for pæn visning
-h3_comparison_data$Result <- sprintf("%.3f%s (%.3f)",
-                                   h3_comparison_data$Estimate,
-                                   h3_comparison_data$Significance,
-                                   h3_comparison_data$SE)
-
-# Vis den pæne tabel
-if (requireNamespace("knitr", quietly = TRUE)) {
-  print(knitr::kable(h3_comparison_data[, c("Condition", "Result", "P_value", "CI_lower", "CI_upper")],
-                    caption = "H3: Sammenligning af effekter på tværs af økonomiske betingelser",
-                    digits = 3))
-}
-
-# Skab en visuel sammenligning hvis der er resultater
-if (nrow(h3_comparison_data) > 0) {
-  # Create dot-whisker plot
-  h3_comparison_plot <- ggplot(h3_comparison_data, aes(x = Estimate, y = Condition)) +
-    geom_point(size = 3) +
-    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    labs(
-      title = "H3: Behandlingseffekter på tværs af økonomiske betingelser",
-      x = "Estimeret effekt (med 95% CI)",
-      y = ""
-    ) +
-    theme_minimal()
-  
-  # Gem sammenlignende plot
-  ggsave("Robusthedstests/H3 tests - Appendiks/h3_treatment_effects_comparison.png", plot = h3_comparison_plot, width = 10, height = 6, dpi = 300)
-  
-  # Vis plottet i R
-  print(h3_comparison_plot)
-} else {
-  cat("Ingen resultater at plotte\n")
-}
-
 # ============================================================================
 # 4. H4: PARTY IDEOLOGY EFFECT
 # ============================================================================
@@ -4554,233 +4338,6 @@ h4_right_outcome_placebo_plot <- plot_outcome_placebo_test(
 ggsave("Robusthedstests/H4 tests - Appendiks/h4_left_outcome_placebo.png", plot = h4_left_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_outcome_placebo.png", plot = h4_right_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 
-# 4.16 Summary of Test Results for H4 ----------------
-# Create summary table of all H4 test results
-# Kør hver rdrobust separat først
-left_wing_rdd <- tryCatch(rdrobust(
-  y = clean_data_left_party$miljø_afhængig,
-  x = clean_data_left_party$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Left-wing Parties RDD:", e$message, "\n")
-  return(NULL)
-})
-
-right_wing_rdd <- tryCatch(rdrobust(
-  y = clean_data_right_party$miljø_afhængig,
-  x = clean_data_right_party$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Right-wing Parties RDD:", e$message, "\n")
-  return(NULL)
-})
-
-# Tjek om analyserne lykkedes
-cat("Left-wing RDD:", ifelse(!is.null(left_wing_rdd), "Succes", "Fejl"), "\n")
-cat("Right-wing RDD:", ifelse(!is.null(right_wing_rdd), "Succes", "Fejl"), "\n")
-
-# Opret summary tabel med sikker håndtering af resultater
-h4_test_summary <- data.frame(
-  Subgroup = c("Left-wing Parties", "Right-wing Parties"),
-  Main_RDD_Effect = c(
-    ifelse(!is.null(left_wing_rdd), 
-           sprintf("%.3f (p=%.3f)", left_wing_rdd$Estimate[1], left_wing_rdd$pv[1]), 
-           "N/A"),
-    ifelse(!is.null(right_wing_rdd), 
-           sprintf("%.3f (p=%.3f)", right_wing_rdd$Estimate[1], right_wing_rdd$pv[1]), 
-           "N/A")
-  ),
-  Placebo_p_value = c(
-    ifelse(exists("h4_left_placebo") && !is.null(h4_left_placebo$empirical_p_value), 
-           h4_left_placebo$empirical_p_value, NA),
-    ifelse(exists("h4_right_placebo") && !is.null(h4_right_placebo$empirical_p_value), 
-           h4_right_placebo$empirical_p_value, NA)
-  ),
-  Density_p_value = c(
-    ifelse(exists("h4_left_density_summary") && !is.null(h4_left_density_summary$p_value), 
-           h4_left_density_summary$p_value, NA),
-    ifelse(exists("h4_right_density_summary") && !is.null(h4_right_density_summary$p_value), 
-           h4_right_density_summary$p_value, NA)
-  )
-)
-
-# Tilføj additional kolonner som f.eks. Permutation_p_value hvis de findes
-if (exists("h4_left_permutation") && exists("h4_right_permutation")) {
-  h4_test_summary$Permutation_p_value <- c(
-    ifelse(!is.null(h4_left_permutation$p_value_effect), h4_left_permutation$p_value_effect, NA),
-    ifelse(!is.null(h4_right_permutation$p_value_effect), h4_right_permutation$p_value_effect, NA)
-  )
-}
-
-# Print og gem summary tabel
-if (requireNamespace("knitr", quietly = TRUE)) {
-  print(knitr::kable(h4_test_summary, 
-                    caption = "H4: Summary of Test Results by Party Ideology"))
-}
-
-write.csv(h4_test_summary, "Robusthedstests/H4 tests - Appendiks/h4_test_summary.csv", row.names = FALSE)
-
-# Opret også et dot-whisker plot for sammenligning hvis RDD'erne var succesfulde
-if (!is.null(left_wing_rdd) || !is.null(right_wing_rdd)) {
-  # Forbered data
-  h4_comparison_data <- data.frame(
-    Ideology = character(),
-    Estimate = numeric(),
-    SE = numeric(),
-    stringsAsFactors = FALSE
-  )
-  
-  # Tilføj resultater, hvis de findes
-  if (!is.null(left_wing_rdd)) {
-    h4_comparison_data <- rbind(h4_comparison_data, data.frame(
-      Ideology = "Left-wing Parties",
-      Estimate = left_wing_rdd$Estimate[1],
-      SE = left_wing_rdd$se[1],
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  if (!is.null(right_wing_rdd)) {
-    h4_comparison_data <- rbind(h4_comparison_data, data.frame(
-      Ideology = "Right-wing Parties",
-      Estimate = right_wing_rdd$Estimate[1],
-      SE = right_wing_rdd$se[1],
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  # Beregn konfidensintervaller
-  h4_comparison_data$CI_lower <- h4_comparison_data$Estimate - 1.96 * h4_comparison_data$SE
-  h4_comparison_data$CI_upper <- h4_comparison_data$Estimate + 1.96 * h4_comparison_data$SE
-  
-  # Skab dot-whisker plot
-  h4_comparison_plot <- ggplot(h4_comparison_data, aes(x = Estimate, y = Ideology)) +
-    geom_point(size = 3) +
-    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    labs(
-      title = "H4: Treatment Effects by Party Ideology",
-      x = "Estimated Effect (with 95% CI)",
-      y = ""
-    ) +
-    theme_minimal()
-  
-  # Gem plot
-  ggsave("Robusthedstests/H4 tests - Appendiks/h4_treatment_effects_comparison.png", plot = h4_comparison_plot, width = 10, height = 6, dpi = 300)
-  
-  # Vis plottet
-  print(h4_comparison_plot)
-}
-
-# 4.17 Compare treatment effects across ideologies ----------------
-# Kør hver rdrobust separat og fang eventuelle fejl
-if (!exists("left_wing_rdd")) {
-  left_wing_rdd <- tryCatch(rdrobust(
-    y = clean_data_left_party$miljø_afhængig,
-    x = clean_data_left_party$centered_lagged_pervote_samlet,
-    c = 0, p = 1, h = 2, kernel = "triangular"
-  ), error = function(e) {
-    cat("Fejl i Left-wing Parties RDD:", e$message, "\n")
-    return(NULL)
-  })
-}
-
-if (!exists("right_wing_rdd")) {
-  right_wing_rdd <- tryCatch(rdrobust(
-    y = clean_data_right_party$miljø_afhængig,
-    x = clean_data_right_party$centered_lagged_pervote_samlet,
-    c = 0, p = 1, h = 2, kernel = "triangular"
-  ), error = function(e) {
-    cat("Fejl i Right-wing Parties RDD:", e$message, "\n")
-    return(NULL)
-  })
-}
-
-# Tjek om analyserne lykkedes
-cat("Left-wing RDD:", ifelse(!is.null(left_wing_rdd), "Succes", "Fejl"), "\n")
-cat("Right-wing RDD:", ifelse(!is.null(right_wing_rdd), "Succes", "Fejl"), "\n")
-
-# Opret en tom dataframe til at begynde med
-h4_comparison_data <- data.frame(
-  Ideology = character(),
-  Estimate = numeric(),
-  SE = numeric(),
-  stringsAsFactors = FALSE
-)
-
-# Tilføj resultater fra left-wing RDD hvis det fungerede
-if (!is.null(left_wing_rdd)) {
-  h4_comparison_data <- rbind(h4_comparison_data, data.frame(
-    Ideology = "Left-wing Parties",
-    Estimate = left_wing_rdd$Estimate[1],
-    SE = left_wing_rdd$se[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Tilføj resultater fra right-wing RDD hvis det fungerede
-if (!is.null(right_wing_rdd)) {
-  h4_comparison_data <- rbind(h4_comparison_data, data.frame(
-    Ideology = "Right-wing Parties",
-    Estimate = right_wing_rdd$Estimate[1],
-    SE = right_wing_rdd$se[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Vis antal rækker i den endelige dataframe
-cat("Antal rækker i h4_comparison_data:", nrow(h4_comparison_data), "\n")
-
-# Kun fortsæt hvis der er data at arbejde med
-if (nrow(h4_comparison_data) > 0) {
-  # Beregn 95% konfidensintervaller
-  h4_comparison_data$CI_lower <- h4_comparison_data$Estimate - 1.96 * h4_comparison_data$SE
-  h4_comparison_data$CI_upper <- h4_comparison_data$Estimate + 1.96 * h4_comparison_data$SE
-  
-  # Tilføj p-værdier
-  h4_comparison_data$P_value <- c(
-    if (!is.null(left_wing_rdd) && "Left-wing Parties" %in% h4_comparison_data$Ideology) left_wing_rdd$pv[1] else NA,
-    if (!is.null(right_wing_rdd) && "Right-wing Parties" %in% h4_comparison_data$Ideology) right_wing_rdd$pv[1] else NA
-  )[match(h4_comparison_data$Ideology, c("Left-wing Parties", "Right-wing Parties"))]
-  
-  # Tilføj signifikansmarkør
-  h4_comparison_data$Significance <- ifelse(h4_comparison_data$P_value < 0.05, "*", 
-                                          ifelse(h4_comparison_data$P_value < 0.1, "†", ""))
-  
-  # Formater resultater for pæn visning
-  h4_comparison_data$Result <- sprintf("%.3f%s (%.3f)",
-                                     h4_comparison_data$Estimate,
-                                     h4_comparison_data$Significance,
-                                     h4_comparison_data$SE)
-  
-  # Vis den pæne tabel
-  if (requireNamespace("knitr", quietly = TRUE)) {
-    print(knitr::kable(h4_comparison_data[, c("Ideology", "Result", "P_value", "CI_lower", "CI_upper")],
-                      caption = "H4: Sammenligning af effekter på tværs af partiideologi",
-                      digits = 3))
-  }
-  
-  # Opret dot-whisker plot - ret variabelnavnet fra 'Condition' til 'Ideology'
-  h4_comparison_plot <- ggplot(h4_comparison_data, aes(x = Estimate, y = Ideology)) +
-    geom_point(size = 3) +
-    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    labs(
-      title = "H4: Treatment Effects by Party Ideology",
-      x = "Estimated Effect (with 95% CI)",
-      y = ""
-    ) +
-    theme_minimal()
-  
-  # Gem sammenlignende plot
-  ggsave("Robusthedstests/H4 tests - Appendiks/h4_treatment_effects_comparison.png", plot = h4_comparison_plot, width = 10, height = 6, dpi = 300)
-  
-  # Vis plottet
-  print(h4_comparison_plot)
-} else {
-  cat("Ingen resultater at vise eller plotte for H4 sammenligning\n")
-}
-
 # ============================================================================
 # 5. H5: PARTY SIZE EFFECT
 # ============================================================================
@@ -4934,219 +4491,6 @@ summary(h5_small_density_test)
 # Save density plots
 ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_density.png", plot = h5_large_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_density.png", plot = h5_small_density_plot$Estplot, width = 10, height = 6, dpi = 300)
-
-# 5.10 Outcome Placebo Tests for H5 (Party Size) ----------------
-# Using variables that shouldn't be affected by treatment
-placebo_vars <- c("rile_lowe", "per410") 
-
-# Large Parties
-h5_large_outcome_placebo <- run_outcome_placebo_test(
-  data = large_parties,
-  real_outcome_var = "miljø_afhængig",
-  placebo_outcome_vars = placebo_vars,
-  running_var = "centered_lagged_pervote_samlet",
-  polynomial = 1,
-  bandwidth = 2,
-  covariates = c("country", "edate")
-)
-
-h5_large_outcome_placebo_plot <- plot_outcome_placebo_test(
-  h5_large_outcome_placebo,
-  title = "H5: Outcome Placebo Test (Large Parties)"
-)
-
-# Small Parties
-h5_small_outcome_placebo <- run_outcome_placebo_test(
-  data = small_parties,
-  real_outcome_var = "miljø_afhængig",
-  placebo_outcome_vars = placebo_vars,
-  running_var = "centered_lagged_pervote_samlet",
-  polynomial = 1,
-  bandwidth = 2,
-  covariates = c("country", "edate")
-)
-
-h5_small_outcome_placebo_plot <- plot_outcome_placebo_test(
-  h5_small_outcome_placebo,
-  title = "H5: Outcome Placebo Test (Small Parties)"
-)
-
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_outcome_placebo.png", plot = h5_large_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
-
-# 5.11 Summary of Test Results for H5 ----------------
-# Kør hver rdrobust separat først (hvis ikke allerede gjort i tidligere kode)
-# Bemærk: Hvis du allerede har kørt disse i 5.12, kan du genbruge resultaterne
-if (!exists("large_parties_rdd")) {
-  large_parties_rdd <- tryCatch(rdrobust(
-    y = large_parties$miljø_afhængig,
-    x = large_parties$centered_lagged_pervote_samlet,
-    c = 0, p = 1, h = 2, kernel = "triangular"
-  ), error = function(e) {
-    cat("Fejl i Large Parties RDD:", e$message, "\n")
-    return(NULL)
-  })
-}
-
-if (!exists("small_parties_rdd")) {
-  small_parties_rdd <- tryCatch(rdrobust(
-    y = small_parties$miljø_afhængig,
-    x = small_parties$centered_lagged_pervote_samlet,
-    c = 0, p = 1, h = 2, kernel = "triangular"
-  ), error = function(e) {
-    cat("Fejl i Small Parties RDD:", e$message, "\n")
-    return(NULL)
-  })
-}
-
-# Tjek om analyserne lykkedes
-cat("Large Parties RDD:", ifelse(!is.null(large_parties_rdd), "Succes", "Fejl"), "\n")
-cat("Small Parties RDD:", ifelse(!is.null(small_parties_rdd), "Succes", "Fejl"), "\n")
-
-# Opret summary tabel med sikker håndtering af resultater
-h5_test_summary <- data.frame(
-  Subgroup = c("Large Parties", "Small Parties"),
-  Main_RDD_Effect = c(
-    ifelse(!is.null(large_parties_rdd), 
-           sprintf("%.3f (p=%.3f)", large_parties_rdd$Estimate[1], large_parties_rdd$pv[1]), 
-           "N/A"),
-    ifelse(!is.null(small_parties_rdd), 
-           sprintf("%.3f (p=%.3f)", small_parties_rdd$Estimate[1], small_parties_rdd$pv[1]), 
-           "N/A")
-  ),
-  Placebo_p_value = c(
-    ifelse(exists("h5_large_placebo") && !is.null(h5_large_placebo$empirical_p_value), 
-           h5_large_placebo$empirical_p_value, NA),
-    ifelse(exists("h5_small_placebo") && !is.null(h5_small_placebo$empirical_p_value), 
-           h5_small_placebo$empirical_p_value, NA)
-  ),
-  Density_p_value = c(
-    ifelse(exists("h5_large_density_summary") && !is.null(h5_large_density_summary$p_value), 
-           h5_large_density_summary$p_value, NA),
-    ifelse(exists("h5_small_density_summary") && !is.null(h5_small_density_summary$p_value), 
-           h5_small_density_summary$p_value, NA)
-  )
-)
-
-# Tilføj additional kolonner som f.eks. Permutation_p_value hvis de findes
-if (exists("h5_large_permutation") && exists("h5_small_permutation")) {
-  h5_test_summary$Permutation_p_value <- c(
-    ifelse(!is.null(h5_large_permutation$p_value_effect), h5_large_permutation$p_value_effect, NA),
-    ifelse(!is.null(h5_small_permutation$p_value_effect), h5_small_permutation$p_value_effect, NA)
-  )
-}
-
-# Print og gem summary tabel
-if (requireNamespace("knitr", quietly = TRUE)) {
-  print(knitr::kable(h5_test_summary, 
-                    caption = "H5: Summary of Test Results by Party Size"))
-}
-
-write.csv(h5_test_summary, "Robusthedstests/H5 tests - Appendiks/h5_test_summary.csv", row.names = FALSE)
-
-# 5.12 Compare treatment effects across party sizes ----------------
-# Kør hver rdrobust separat og fang eventuelle fejl
-large_parties_rdd <- tryCatch(rdrobust(
-  y = large_parties$miljø_afhængig,
-  x = large_parties$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Large Parties RDD:", e$message, "\n")
-  return(NULL)
-})
-
-small_parties_rdd <- tryCatch(rdrobust(
-  y = small_parties$miljø_afhængig,
-  x = small_parties$centered_lagged_pervote_samlet,
-  c = 0, p = 1, h = 2, kernel = "triangular"
-), error = function(e) {
-  cat("Fejl i Small Parties RDD:", e$message, "\n")
-  return(NULL)
-})
-
-# Tjek om analyserne lykkedes
-cat("Large Parties RDD:", ifelse(!is.null(large_parties_rdd), "Succes", "Fejl"), "\n")
-cat("Small Parties RDD:", ifelse(!is.null(small_parties_rdd), "Succes", "Fejl"), "\n")
-
-# Opret en tom dataframe til at begynde med
-h5_comparison_data <- data.frame(
-  Size = character(),
-  Estimate = numeric(),
-  SE = numeric(),
-  stringsAsFactors = FALSE
-)
-
-# Tilføj resultater fra large parties RDD hvis det fungerede
-if (!is.null(large_parties_rdd)) {
-  h5_comparison_data <- rbind(h5_comparison_data, data.frame(
-    Size = "Large Parties",
-    Estimate = large_parties_rdd$Estimate[1],
-    SE = large_parties_rdd$se[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Tilføj resultater fra small parties RDD hvis det fungerede
-if (!is.null(small_parties_rdd)) {
-  h5_comparison_data <- rbind(h5_comparison_data, data.frame(
-    Size = "Small Parties",
-    Estimate = small_parties_rdd$Estimate[1],
-    SE = small_parties_rdd$se[1],
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Vis antal rækker i den endelige dataframe
-cat("Antal rækker i h5_comparison_data:", nrow(h5_comparison_data), "\n")
-
-# Kun fortsæt hvis der er data at arbejde med
-if (nrow(h5_comparison_data) > 0) {
-  # Beregn 95% konfidensintervaller
-  h5_comparison_data$CI_lower <- h5_comparison_data$Estimate - 1.96 * h5_comparison_data$SE
-  h5_comparison_data$CI_upper <- h5_comparison_data$Estimate + 1.96 * h5_comparison_data$SE
-  
-  # Tilføj p-værdier
-  h5_comparison_data$P_value <- c(
-    if (!is.null(large_parties_rdd) && "Large Parties" %in% h5_comparison_data$Size) large_parties_rdd$pv[1] else NA,
-    if (!is.null(small_parties_rdd) && "Small Parties" %in% h5_comparison_data$Size) small_parties_rdd$pv[1] else NA
-  )[match(h5_comparison_data$Size, c("Large Parties", "Small Parties"))]
-  
-  # Tilføj signifikansmarkør
-  h5_comparison_data$Significance <- ifelse(h5_comparison_data$P_value < 0.05, "*", 
-                                          ifelse(h5_comparison_data$P_value < 0.1, "†", ""))
-  
-  # Formater resultater for pæn visning
-  h5_comparison_data$Result <- sprintf("%.3f%s (%.3f)",
-                                     h5_comparison_data$Estimate,
-                                     h5_comparison_data$Significance,
-                                     h5_comparison_data$SE)
-  
-  # Vis den pæne tabel
-  if (requireNamespace("knitr", quietly = TRUE)) {
-    print(knitr::kable(h5_comparison_data[, c("Size", "Result", "P_value", "CI_lower", "CI_upper")],
-                      caption = "H5: Sammenligning af effekter på tværs af partistørrelser",
-                      digits = 3))
-  }
-  
-  # Create dot-whisker plot
-  h5_comparison_plot <- ggplot(h5_comparison_data, aes(x = Estimate, y = Size)) +
-    geom_point(size = 3) +
-    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    labs(
-      title = "H5: Treatment Effects by Party Size",
-      x = "Estimated Effect (with 95% CI)",
-      y = ""
-    ) +
-    theme_minimal()
-  
-  # Save comparison plot
-  ggsave("Robusthedstests/H5 tests - Appendiks/h5_treatment_effects_comparison.png", plot = h5_comparison_plot, width = 10, height = 6, dpi = 300)
-  
-  # Vis plottet
-  print(h5_comparison_plot)
-} else {
-  cat("Ingen resultater at vise eller plotte for H5 sammenligning\n")
-}
 
 ```
 
