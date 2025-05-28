@@ -280,8 +280,8 @@ remove_duplicates <- function(data, group_cols, value_col) {
 # Function to create standard RDD plot
 plot_rdd <- function(data, x_var, y_var, group_var, 
                     x_limit = 10, 
-                    x_label = "Running Variable", 
-                    y_label = "Outcome", 
+                    x_label = "Behandlingsvariabel", 
+                    y_label = "Resultat", 
                     title = "RDD Plot") {
   # Ensure x_var, y_var, and group_var are treated as strings (column names)
   ggplot(data = subset(data, data[[x_var]] <= x_limit)) +
@@ -300,38 +300,6 @@ plot_rdd <- function(data, x_var, y_var, group_var,
     theme_minimal() +
     labs(title = title, x = x_label, y = y_label) +
     theme(legend.position = 'bottom', legend.title = element_blank())
-}
-
-# Run RDD analysis with multiple specifications
-run_rdrobust_analysis <- function(data, p, bw = NULL, interaction_var = NULL) {
-  # Base covariates
-  base_covs <- cbind(
-    as.numeric(factor(data$country)),
-    as.numeric(factor(data$edate))
-  )
-  
-  # Add interaction term if provided
-  if(!is.null(interaction_var)) {
-    covs <- cbind(
-      base_covs,
-      data[[interaction_var]],
-      data[[interaction_var]] * data$lagged_i_parlament
-    )
-  } else {
-    covs <- base_covs
-  }
-  
-  # Run RD analysis
-  rd <- rdrobust(
-    y = data$miljø_afhængig,
-    x = data$centered_lagged_pervote_samlet,
-    c = 0,
-    p = p,
-    h = bw,
-    covs = covs
-  )
-  
-  return(rd)
 }
 
 # Function for zoomed-in RDD plots
@@ -366,156 +334,6 @@ jump_plot_cutoff <- function(data, force_var, y_var, group_var, polynomial=1, wi
     theme(legend.position = 'bottom', legend.title = element_blank()) +
     labs(title = paste0("RDD Plot (Window = ±", window, ")"),
          y = "Climate Position")
-  
-  return(p)
-}
-
-# Nye funktioner for zero-inflation og kvantil regression ----------------
-# Definer nye funktioner for zero-inflation og kvantil regression
-# Funktion til at visualisere two-part model resultater
-create_two_part_model_visualization <- function(data, outcome_var, running_var, treatment_var, polynomial, bandwidth, covariates) {
-  # Del 1: Sandsynlighed for ikke-nul værdier
-  binary_formula <- as.formula(paste0("I(", outcome_var, " != 0) ~ ", 
-                                     running_var, " * ", treatment_var, " + ", 
-                                     paste0(covariates, collapse = " + ")))
-  binary_model <- glm(binary_formula, family = binomial, data = data)
-  
-  # Del 2: Model for ikke-nul værdier
-  nonzero_data <- subset(data, data[[outcome_var]] != 0)
-  continuous_formula <- as.formula(paste0(outcome_var, " ~ ", 
-                                        running_var, " * ", treatment_var, " + ", 
-                                        paste0(covariates, collapse = " + ")))
-  continuous_model <- lm(continuous_formula, data = nonzero_data)
-  
-  # Generer prædiktioner for visualisering
-  pred_data <- expand.grid(
-    temp_running = seq(min(data[[running_var]], na.rm = TRUE), max(data[[running_var]], na.rm = TRUE), length.out = 100),
-    temp_treatment = c(0, 1)
-  )
-  names(pred_data) <- c(running_var, treatment_var)
-  
-  # Tilføj kovariater med gennemsnitsværdier
-  for (cov in covariates) {
-    if (is.factor(data[[cov]]) || is.character(data[[cov]])) {
-      # For kategoriske variable, brug den hyppigste værdi
-      pred_data[[cov]] <- names(sort(table(data[[cov]]), decreasing = TRUE)[1])
-    } else {
-      # For numeriske variable, brug gennemsnit
-      pred_data[[cov]] <- mean(data[[cov]], na.rm = TRUE)
-    }
-  }
-  
-  # Beregn prædikterede værdier
-  pred_data$binary_pred <- predict(binary_model, newdata = pred_data, type = "response")
-  
-  # For continuous_model, skal vi håndtere at det kun er for ikke-nul værdier
-  # Vi bruger en dummy værdi for kontinuert model prædiktioner
-  pred_data$continuous_pred <- 0
-  try({
-    pred_data$continuous_pred <- predict(continuous_model, newdata = pred_data)
-  }, silent = TRUE)
-  
-  # Beregn samlet effekt (sandsynlighed for ikke-nul * værdi givet ikke-nul)
-  pred_data$combined_effect <- pred_data$binary_pred * pred_data$continuous_pred
-  
-  # Forbered data til plot
-  pred_data$treatment_label <- factor(pred_data[[treatment_var]], 
-                                    levels = c(0, 1), 
-                                    labels = c("Uden behandling", "Med behandling"))
-  
-  # Lav plot
-  library(ggplot2)
-  p1 <- ggplot(pred_data, aes(x = .data[[running_var]], y = binary_pred, color = treatment_label)) +
-    geom_line() +
-    geom_vline(xintercept = 0, linetype = "dashed") +
-    labs(title = "Sandsynlighed for ikke-nul klimaposition",
-         x = paste0(running_var, " (centreret)"),
-         y = "Sandsynlighed",
-         color = "Behandlingsstatus") +
-    theme_minimal()
-  
-  p2 <- ggplot(pred_data, aes(x = .data[[running_var]], y = continuous_pred, color = treatment_label)) +
-    geom_line() +
-    geom_vline(xintercept = 0, linetype = "dashed") +
-    labs(title = "Værdi af klimaposition givet ikke-nul",
-         x = paste0(running_var, " (centreret)"),
-         y = "Værdi",
-         color = "Behandlingsstatus") +
-    theme_minimal()
-  
-  p3 <- ggplot(pred_data, aes(x = .data[[running_var]], y = combined_effect, color = treatment_label)) +
-    geom_line() +
-    geom_vline(xintercept = 0, linetype = "dashed") +
-    labs(title = "Samlet effekt: Sandsynlighed * Værdi",
-         x = paste0(running_var, " (centreret)"),
-         y = "Forventet værdi",
-         color = "Behandlingsstatus") +
-    theme_minimal()
-  
-  # Kombiner plots
-  if (requireNamespace("gridExtra", quietly = TRUE)) {
-    combined_plot <- gridExtra::grid.arrange(p1, p2, p3, ncol = 1,
-                                           top = "Two-part model resultater")
-    return(combined_plot)
-  } else {
-    # Returner det vigtigste plot hvis gridExtra ikke er tilgængelig
-    return(p3)
-  }
-}
-
-# Funktion til at visualisere kvantil regressionseffekter
-create_quantile_effect_plot <- function(data, outcome_var, running_var, treatment_var, quantiles, covariates, title) {
-  library(quantreg)
-  library(ggplot2)
-  
-  # Forbered resultater
-  results <- data.frame(
-    Quantile = numeric(),
-    Estimate = numeric(),
-    StdError = numeric(),
-    Lower = numeric(),
-    Upper = numeric()
-  )
-  
-  # Kør kvantil regression for hver kvantil
-  for (q in quantiles) {
-    formula_str <- paste0(outcome_var, " ~ ", running_var, " * ", treatment_var)
-    if (length(covariates) > 0) {
-      formula_str <- paste0(formula_str, " + ", paste0(covariates, collapse = " + "))
-    }
-    
-    rq_model <- rq(as.formula(formula_str), tau = q, data = data)
-    coef_summary <- summary(rq_model)
-    
-    # Få koefficienten for treatment
-    coef_idx <- which(rownames(coef_summary$coefficients) == treatment_var)
-    if (length(coef_idx) > 0) {
-      estimate <- coef_summary$coefficients[coef_idx, 1]
-      std_error <- coef_summary$coefficients[coef_idx, 2]
-      
-      # Beregn konfidensinterval
-      lower <- estimate - 1.96 * std_error
-      upper <- estimate + 1.96 * std_error
-      
-      results <- rbind(results, data.frame(
-        Quantile = q,
-        Estimate = estimate,
-        StdError = std_error,
-        Lower = lower,
-        Upper = upper
-      ))
-    }
-  }
-  
-  # Lav plot
-  p <- ggplot(results, aes(x = Quantile, y = Estimate)) +
-    geom_line() +
-    geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.2) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    labs(title = title,
-         x = "Kvantil",
-         y = "Estimeret effekt af behandling") +
-    theme_minimal()
   
   return(p)
 }
@@ -642,6 +460,9 @@ mpds_european_1960 <- mpds_european_1960 %>%
   mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>% 
   ungroup() %>%
   filter(avg_pervote_main >= 10)
+
+mpds_european_1960 <- mpds_european_1960 %>%
+  dplyr::rename(pervote_main = pervote)
 ```
 
 ## 1.6 Green Party Parliament Presence and Vote Share
@@ -690,7 +511,7 @@ final_dataset <- full_dataset %>%
     countryname, edate, country, party, oecdmember, eumember, date, 
     partyname, partyabbrev, parfam, absseat, per410, per416, per501, 
     threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet, 
-    i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe
+    i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe, pervote_main
   ) %>%
   remove_duplicates(
     c("countryname", "edate", "party"),
@@ -721,20 +542,27 @@ final_dataset <- final_dataset %>%
     factor_lagged_i_parlament = factor(
       lagged_i_parlament, 
       levels = c(0, 1), 
-      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+      labels = c("Grønne partier uden pladser", "Grønne partier med pladser")
     ),
     factor_i_parlament = factor(
       i_parlament, 
       levels = c(0, 1), 
-      labels = c("Green parties w/o seats", "Green parties w seat(s)")
+      labels = c("Grønne partier uden pladser", "Grønne partier med pladser")
     ),
-    
     # Create variables for party size (for H5)
-    large_party = ifelse(avg_pervote_main > median(avg_pervote_main, na.rm = TRUE), 1, 0),
+    large_party = ifelse(pervote_main > median(pervote_main, na.rm = TRUE), 1, 0),    
+    
+    # Create variables for party size (for H5) Gammel version
+    large_party_alt = ifelse(avg_pervote_main > median(avg_pervote_main, na.rm = TRUE), 1, 0),
+    
+
     
     # Create variables for left-right orientation (for H4)
     left_party = ifelse(rile_lowe < 0, 1, 0)
   )
+
+final_dataset <- final_dataset %>%
+  mutate(miljø_afhængig_normal = ifelse(per410 == 0, NA, (per501 + per416)/per410))
 
 # Lagged left_party
 final_dataset <- final_dataset %>%
@@ -747,6 +575,12 @@ final_dataset <- final_dataset %>%
   dplyr::arrange(party, edate) %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(large_party_lag1 = dplyr::lag(`large_party`, n = 1, order_by = edate))
+
+# Lagged large_party_alt
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(large_party_alt_lag1 = dplyr::lag(`large_party_alt`, n = 1, order_by = edate))
 
 # Sortér data efter parti og dato
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
@@ -773,7 +607,7 @@ final_dataset <- dplyr::left_join(final_dataset,
 
 
 # Step 1: Identificer valg hvor højreradikale partier var i parlamentet fra MPDataset
-rrp_presence <- MPDataset_MPDS2024a %>%
+rrp_presence <- mpds %>%
   dplyr::filter(parfam == 70 & absseat > 0) %>%  # Højreradikale partier med mindst ét sæde
   dplyr::group_by(countryname, date) %>%
   dplyr::summarize(has_rrp = 1, .groups = "drop") %>%  # Brug et andet navn til indikatoren
@@ -800,7 +634,7 @@ print("Fordeling af rrp_i_p_lag1:")
 print(table(final_dataset$rrp_i_p_lag1, useNA = "always"))
 
 
-View(final_dataset[, c("parfam","rrp_i_p_lag1", "rrp_i_p", "countryname", "party", "edate")])
+#View(final_dataset[, c("parfam","rrp_i_p_lag1", "rrp_i_p", "countryname", "party", "edate")])
 
 #GDP Per Capita Growth
 # Match datasættene ved hjælp af left_join
@@ -816,7 +650,6 @@ final_dataset <- final_dataset %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(GDP_per_capita_lag1 = dplyr::lag(`gdp_capita_growth`, n = 1, order_by = edate))
 
-View(final_dataset[, c("left_party", "left_party_lag1", "large_party", "large_party_lag1", "countryname", "party", "edate")])
 #Unemployment
 # Dette kopierer GDP_per_capita over i final_dataset
 final_dataset <- dplyr::left_join(final_dataset, 
@@ -856,7 +689,7 @@ final_dataset <- final_dataset %>%
     good_economy = ifelse(economic_index > median(economic_index, na.rm = TRUE), 1, 0),
     # Add factor version of the variable for plots and models
     factor_good_economy = factor(good_economy, levels = c(0, 1), 
-                                labels = c("Poor economy", "Good economy"))
+                                labels = c("Dårlig Økonomi", "God Økonomi"))
   )
 
 # Lagged good_economy_lag1
@@ -865,6 +698,13 @@ final_dataset <- final_dataset %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(good_economy_lag1 = dplyr::lag(`good_economy`, n = 1, order_by = edate))
 
+final_dataset <- final_dataset %>%
+  mutate(
+    # Opret binær variabel for høj/lav BNP-vækst baseret på median
+        # Tilføj faktorniveauer for pænere plots og modeller
+    factor_good_economy_lag1 = factor(good_economy_lag1, levels = c(0, 1), 
+                                  labels = c("Dårlig Økonomi", "God Økonomi"))
+  )
 
 # Forberedelse af data med BNP-vækst som moderator
 final_dataset <- final_dataset %>%
@@ -881,6 +721,14 @@ final_dataset <- final_dataset %>%
   dplyr::arrange(party, edate) %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(high_gdp_growth_lag1 = dplyr::lag(`high_gdp_growth`, n = 1, order_by = edate))
+
+final_dataset <- final_dataset %>%
+  mutate(
+    # Opret binær variabel for høj/lav BNP-vækst baseret på median
+        # Tilføj faktorniveauer for pænere plots og modeller
+    factor_high_gdp_growth_lag1 = factor(high_gdp_growth_lag1, levels = c(0, 1), 
+                                  labels = c("Lav BNP-vækst", "Høj BNP-vækst"))
+  )
 
 # Create clean dataset for analysis (remove missing values)
 clean_data <- na.omit(final_dataset)
@@ -986,9 +834,9 @@ country_coverage_plot <- ggplot(country_summary, aes(x = reorder(countryname, n_
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
   labs(
-    title = "Number of Observations by Country",
-    x = "Country",
-    y = "Number of Observations"
+    title = "Antal Observationer per Land",
+    x = "Land",
+    y = "Antal Observationer"
   ) +
   theme_minimal()
 
@@ -1003,10 +851,10 @@ time_coverage_plot <- ggplot(time_coverage, aes(x = Year, y = countryname, fill 
   geom_tile(color = "white") +
   scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "lightgray")) +
   labs(
-    title = "Time Coverage by Country",
-    x = "Year",
-    y = "Country",
-    fill = "Has Data"
+    title = "Tidsoversigt per Land",
+    x = "Årstal",
+    y = "Land",
+    fill = "Har Data"
   ) +
   theme_minimal() +
   theme(legend.position = "bottom")
@@ -1020,9 +868,9 @@ climate_dist_plot <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
   geom_histogram(aes(y = ..density..), bins = 30, fill = "steelblue", color = "darkblue", alpha = 0.7) +
   geom_density(color = "red", size = 1) +
   labs(
-    title = "Distribution of Climate Position Variable",
-    x = "Climate Position (miljø_afhængig)",
-    y = "Density"
+    title = "Distribution af Klimafokus Variablen",
+    x = "Klimafokus",
+    y = "Densitet"
   ) +
   theme_minimal()
 
@@ -1032,9 +880,9 @@ climate_country_plot <- ggplot(final_dataset, aes(x = reorder(countryname, milj�
   geom_boxplot(fill = "steelblue", alpha = 0.7) +
   coord_flip() +
   labs(
-    title = "Climate Position by Country",
-    x = "Country",
-    y = "Climate Position"
+    title = "Klimafokus per Land",
+    x = "Land",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1052,10 +900,10 @@ climate_time_plot <- final_dataset %>%
   geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci), alpha = 0.2) +
   geom_line(aes(y = median_climate), linetype = "dashed", color = "darkred") +
   labs(
-    title = "Climate Position Over Time",
-    x = "Year",
-    y = "Average Climate Position",
-    caption = "Solid line: mean with 95% CI; Dashed line: median"
+    title = "Klimafokus Over Tid",
+    x = "Årstal",
+    y = "Gennemsnitlig Klimafokus",
+    caption = "Solid linje: gennemsnit med 95% KI; Stiplet linje: median"
   ) +
   theme_minimal()
 
@@ -1066,9 +914,9 @@ components_data <- final_dataset %>%
                names_to = "component",
                values_to = "value") %>%
   mutate(component = case_when(
-    component == "per410" ~ "Environmental Protection (per410)",
-    component == "per416" ~ "Anti-Growth Economy (per416)",
-    component == "per501" ~ "Environmental Protection: Positive (per501)",
+    component == "per410" ~ "Økonomisk Vækst: Positiv (per410)",
+    component == "per416" ~ "Anti-Vækst Økonomi: Positiv (per416)",
+    component == "per501" ~ "Klimabeskyttelse: Positiv (per501)",
     TRUE ~ component
   ))
 
@@ -1076,9 +924,9 @@ components_plot <- ggplot(components_data, aes(x = value, fill = component)) +
   geom_histogram(bins = 20, alpha = 0.7, position = "identity") +
   facet_wrap(~ component) +
   labs(
-    title = "Distribution of Climate Position Components",
-    x = "Value",
-    y = "Count"
+    title = "Fordeling af Klimafokus Komponenter",
+    x = "Værdi",
+    y = "Antal"
   ) +
   theme_minimal() +
   theme(legend.position = "none")
@@ -1097,9 +945,9 @@ zero_plot <- ggplot(zero_prop, aes(x = reorder(countryname, prop_zero), y = prop
   geom_bar(stat = "identity", fill = "darkred") +
   coord_flip() +
   labs(
-    title = "Proportion of Zero Climate Position Values by Country",
-    x = "Country",
-    y = "Proportion of Zero Values"
+    title = "Andel af Nul-Klimafokus værdier per Land",
+    x = "Land",
+    y = "Andel af Nul værdier"
   ) +
   theme_minimal()
 
@@ -1107,18 +955,18 @@ zero_plot <- ggplot(zero_prop, aes(x = reorder(countryname, prop_zero), y = prop
 party_family_climate <- final_dataset %>%
   dplyr::mutate(
     party_family = case_when(
-      parfam == "10" ~ "Green",
-      parfam == "20" ~ "Socialist/Other left parties",
-      parfam == "30" ~ "Social Democratic",
-      parfam == "40" ~ "Liberal",
-      parfam == "50" ~ "Christian Democratic",
-      parfam == "60" ~ "Conservative",
-      parfam == "70" ~ "Nationalist",
-      parfam == "80" ~ "Agrarian",
-      parfam == "90" ~ "Ethnic/Regional",
-      parfam == "95" ~ "Special issue parties",
-      parfam == "98" ~ "Electoral alliance w/o leader",
-      TRUE ~ "Other"
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
     )
   ) %>%
   filter(!is.na(party_family))
@@ -1128,9 +976,9 @@ family_climate_plot <- ggplot(party_family_climate, aes(x = reorder(party_family
   geom_boxplot(fill = "steelblue", alpha = 0.7) +
   coord_flip() +
   labs(
-    title = "Climate Position by Party Family",
-    x = "Party Family",
-    y = "Climate Position"
+    title = "Klimafokus per Partifamilie",
+    x = "Partifamilie",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1138,19 +986,19 @@ family_climate_plot <- ggplot(party_family_climate, aes(x = reorder(party_family
 # Oprettelse af forbedret graf med de rigtige partifamilienavne
 zero_climate_by_parfam <- final_dataset %>%
    mutate(
-     party_family = case_when(
-       parfam == "10" ~ "Green",
-       parfam == "20" ~ "Socialist/Other left parties",
-       parfam == "30" ~ "Social Democratic",
-       parfam == "40" ~ "Liberal",
-       parfam == "50" ~ "Christian Democratic",
-       parfam == "60" ~ "Conservative",
-       parfam == "70" ~ "Nationalist",
-       parfam == "80" ~ "Agrarian",
-       parfam == "90" ~ "Ethnic/Regional",
-       parfam == "95" ~ "Special issue parties",
-       parfam == "98" ~ "Electoral alliance w/o leader",
-       TRUE ~ "Other"
+    party_family = case_when(
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
      )
    ) %>%
    group_by(party_family) %>%
@@ -1165,9 +1013,9 @@ zero_climate_by_parfam <- final_dataset %>%
  ggplot(zero_climate_by_parfam, aes(x = party_family, y = zero_proportion)) +
    geom_bar(stat = "identity", fill = "steelblue") +
    labs(
-     title = "Proportion of Zero Climate Position Values by Party Family",
-     x = "Party Family",
-     y = "Proportion of Zero Values"
+     title = "Andel Nul-Klimafokus Værdier per Partifamilie",
+     x = "Partifamilie",
+     y = "Andel Nul-Værdier"
    ) +
    theme_minimal() +
    theme(
@@ -1193,9 +1041,9 @@ rv_dist_plot <- ggplot(final_dataset, aes(x = centered_lagged_pervote_samlet)) +
   geom_histogram(binwidth = 0.5, fill = "steelblue", color = "darkblue") +
   geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 1) +
   labs(
-    title = "Distribution of Green Party Vote Share (Centered at Threshold)",
-    x = "Centered Vote Share",
-    y = "Count"
+    title = "Fordeling af Grønne Partiers Stemmeandel (Centreret på skæringspunktet)",
+    x = "Centreret Stemmeandel (%)",
+    y = "Antal"
   ) +
   theme_minimal()
 
@@ -1209,12 +1057,12 @@ rdplotdensity(rdd_result,
               X = final_dataset$centered_lagged_pervote_samlet,
               type = "both",
               CItype = "region",
-              title = "Density Manipulation Test around Threshold",
-              xlabel = "Centered Vote Share",
-              ylabel = "Density",
+              title = "Densitet Manipulationstest Omkring Skæringspunktet",
+              xlabel = "Centreret Stemmeandel",
+              ylabel = "Densitet",
               lcol = c("blue", "red"),
-              legendTitle = "Density Estimates",
-              legendGroups = c("Below threshold", "Above threshold"))
+              legendTitle = "Densitetsestimater",
+              legendGroups = c("Over Skæringspunkt", "Under Skæringspunkt"))
 
 DCdensity(final_dataset$centered_lagged_pervote_samlet, c = 0, ext.out = TRUE)
 
@@ -1226,12 +1074,12 @@ seat_allocation_plot <- ggplot(final_dataset, aes(x = centered_lagged_pervote_sa
   geom_vline(xintercept = 0, linetype = "dashed") +
   labs(
     title = "Green Party Parliamentary Representation by Vote Share",
-    x = "Vote Share (Centered at Threshold)",
-    y = "In Parliament"
+    x = "Stemmeandel (Centreret på Skæringspunktet)",
+    y = "I Parlament"
   ) +
   scale_color_manual(values = c("0" = "darkblue", "1" = "darkred"), 
                      name = "Parliamentary\nStatus",
-                     labels = c("Not in Parliament", "In Parliament")) +
+                     labels = c("Ikke i Parlament", "I Parlament")) +
   theme_minimal()
 
 # 3.4 Balance check for covariates around threshold --------------
@@ -1266,7 +1114,7 @@ balance_check_plot <- function(data, var_name, running_var, cutpoint = 0, bandwi
     labs(
       title = paste("Balance Check:", var_name),
       subtitle = paste("Interaction p-value:", round(interaction_pval, 4)),
-      x = "Running Variable",
+      x = "Behandlingsvariabel",
       y = var_name
     ) +
     theme_minimal()
@@ -1287,18 +1135,18 @@ green_time_plot <- final_dataset %>%
     avg_vote_share = mean(lagged_pervote_samlet, na.rm = TRUE)
   ) %>%
   ggplot(aes(x = Year)) +
-  geom_line(aes(y = prop_in_parl, color = "Proportion in Parliament"), size = 1) +
-  geom_line(aes(y = avg_vote_share / 100, color = "Average Vote Share (scaled)"), size = 1) +
+  geom_line(aes(y = prop_in_parl, color = "Andel i Parlamentet"), size = 1) +
+  geom_line(aes(y = avg_vote_share / 100, color = "Gennemsnitlig Stemmeandel (skaleret)"), size = 1) +
   scale_y_continuous(
-    name = "Proportion in Parliament",
-    sec.axis = sec_axis(~.*100, name = "Average Vote Share (%)")
+    name = "Andel i Parlament",
+    sec.axis = sec_axis(~.*100, name = "Gennemsnitlig Stemmeandel (%)")
   ) +
-  scale_color_manual(values = c("Proportion in Parliament" = "darkred", 
-                               "Average Vote Share (scaled)" = "darkblue")) +
+  scale_color_manual(values = c("Andel i Parlament" = "darkred", 
+                               "Gennemsnitlig Stemmeandel (skaleret)" = "darkblue")) +
   labs(
-    title = "Green Party Representation Over Time",
-    x = "Year",
-    color = "Measure"
+    title = "Grønt Parti Repræsentation Over Tid",
+    x = "Årstal",
+    color = "Mål"
   ) +
   theme_minimal()
 
@@ -1315,9 +1163,9 @@ rrp_time_plot <- final_dataset %>%
   geom_line(size = 1, color = "darkred") +
   geom_point(size = 2, color = "darkred") +
   labs(
-    title = "Radical Right Party Presence Over Time",
-    x = "Year",
-    y = "Proportion of Observations with RRP in Parliament"
+    title = "Højreradikal Parti Tilstedeværelse Over Tid",
+    x = "Årstal",
+    y = "Andel Observationer med Højreradikale Partier i Parlamnent"
   ) +
   theme_minimal()
 
@@ -1330,7 +1178,7 @@ p1 <- final_dataset %>%
   ggplot(aes(x = Year, y = GDP_per_capita_lag1)) +
   geom_line(size = 1, color = "red") +
   geom_point(size = 2, color = "red") +
-  labs(title = "GDP Growth", y = "Value") +
+  labs(title = "BNP Vækst", y = "Værdi") +
   theme_minimal()
 
 # Plot for inflation (med logaritmisk skala)
@@ -1341,7 +1189,7 @@ p2 <- final_dataset %>%
   geom_line(size = 1, color = "green") +
   geom_point(size = 2, color = "green") +
   scale_y_log10() +
-  labs(title = "Inflation (log scale)", y = "Value") +
+  labs(title = "Inflation (Logaritmisk Skala)", y = "Værdi") +
   theme_minimal()
 
 # Plot for unemployment
@@ -1351,7 +1199,7 @@ p3 <- final_dataset %>%
   ggplot(aes(x = Year, y = unemployment)) +
   geom_line(size = 1, color = "blue") +
   geom_point(size = 2, color = "blue") +
-  labs(title = "Unemployment", y = "Value") +
+  labs(title = "Arbejdsløshed", y = "Værdi") +
   theme_minimal()
 
 # Kombiner plots i én række (ligesom i dit eksempel)
@@ -1359,7 +1207,7 @@ econ_indicators_plot <- p1 + p2 + p3 +
   plot_layout(ncol = 3) +
   plot_annotation(
     title = "Economic Indicators Over Time",
-    subtitle = "GDP Growth, Inflation (logarithmic scale), and Unemployment",
+    subtitle = "BNP Vækst, Inflation (Logaritmisk Skala), og Arbejdsløshed",
     theme = theme(plot.title = element_text(size = 14, face = "bold"),
                  plot.subtitle = element_text(size = 10))
   )
@@ -1375,9 +1223,9 @@ ideology_dist_plot <- ggplot(final_dataset, aes(x = rile_lowe)) +
   geom_histogram(bins = 30, fill = "steelblue", color = "darkblue", alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
   labs(
-    title = "Distribution of Party Ideology (Lowe's RILE Score)",
-    x = "RILE Score (Negative = Left, Positive = Right)",
-    y = "Count"
+    title = "Fordeling af Partiideologi (Lowe's RILE Score)",
+    x = "RILE Score (Negativ = Venstreorienteret, Positive = Højreorienteret)",
+    y = "Antal"
   ) +
   theme_minimal()
 
@@ -1396,9 +1244,9 @@ party_size_plot <- ggplot(final_dataset, aes(x = avg_pervote_main)) +
     color = "red"
   ) +
   labs(
-    title = "Distribution of Party Size (Average Vote Share)",
-    x = "Average Vote Share (%)",
-    y = "Count"
+    title = "Distribution af Partystørrelse (Gennemsnitlig Stemmeprocent)",
+    x = "Gennemsnitlige Stemmeandel (%)",
+    y = "Antal"
   ) +
   theme_minimal()
 
@@ -1420,13 +1268,13 @@ correlation_plot_with_ggplot <- function() {
   
   # Create labels for the variables
   label_names <- c(
-    "Climate Position", 
-    "Left-Right Position", 
-    "Avg. Party Vote Share", 
-    "Radical Right in Parl.",
-    "GDP Growth (Lag)", 
-    "Unemployment Rate", 
-    "Inflation Rate"
+    "Klimafokus", 
+    "Venstre-Højre Position", 
+    "Gns. Parti Stemmeandel", 
+    "Højreradikale i Parlament",
+    "BNP Vækst (Lag)", 
+    "Arbejdsløshedsrate", 
+    "Inflations Rate"
   )[1:num_vars]  # Only take as many as we need
   
   if(length(label_names) == num_vars) {
@@ -1476,9 +1324,9 @@ bivariate_plot <- ggplot(final_dataset, aes(x = centered_lagged_pervote_samlet, 
   geom_smooth(method = "loess") +
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
   labs(
-    title = "Relationship Between Green Party Vote Share and Climate Position",
-    x = "Green Party Vote Share (Centered)",
-    y = "Climate Position"
+    title = "Forhold mellem Grønt Parti Stemmeandel og Klimafokus",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1531,9 +1379,9 @@ create_conditional_means_plot <- function(data, poly_degree, bin_width = 0.5, x_
     scale_size_continuous(name = "Antal obs.", range = c(1, 5)) +
     labs(
       title = paste0("Conditional Means Plot (Polynomial Degree ", poly_degree, ")"),
-      x = "Green Party Vote Share (Centered)",
-      y = "Average Climate Position",
-      color = "Parliamentary Status"
+      x = "Grønt Parti Stemmeandel (Centered)",
+      y = "Gennemsnitlig Klimafokus",
+      color = "Parlament Status"
     ) +
     theme_minimal()
 }
@@ -1547,8 +1395,8 @@ cm4 <- create_conditional_means_plot(final_dataset, poly_degree = 4)
 # Kombiner plots i et 2x2 grid
 conditional_means_comparison <- (cm1 + cm2) / (cm3 + cm4) + 
   plot_annotation(
-    title = "Conditional Means Visualization: Comparison of Different Polynomial Specifications",
-    subtitle = "Effect of Green Party Parliamentary Entry on Climate Position",
+    title = "Konditionelle Gennemsnits Visualisering: Sammenligning af Forskellige Polynomiale Specifikationer",
+    subtitle = "Effekt af Grønt Parti Indtog i Parlamentet på Klimafokus",
     theme = theme(plot.title = element_text(size = 14, face = "bold"),
                  plot.subtitle = element_text(size = 10))
   )
@@ -1585,15 +1433,15 @@ create_poly_rdd_plot <- function(data, poly_degree, x_limit = 10) {
     # Tilføj vertikal linje ved tærsklen
     geom_vline(xintercept = 0, linetype = "dashed") +
     # Brug geom_text i stedet for annotate for at undgå fejl
-    geom_text(aes(x = -3.5, y = annotation_y_position, label = "Green Party Below Threshold"), 
+    geom_text(aes(x = -3.5, y = annotation_y_position, label = "Under Skæringspunktet"), 
               color = "darkblue", size = 3, inherit.aes = FALSE) +
-    geom_text(aes(x = 5, y = annotation_y_position, label = "Green Party Above Threshold"), 
+    geom_text(aes(x = 5, y = annotation_y_position, label = "Over Skæringspunktet"), 
               color = "darkred", size = 3, inherit.aes = FALSE) +
     # Titler og aksenavne
     labs(
       title = paste0("Polynomial Degree ", poly_degree),
-      x = "Green Party Vote Share (Centered)",
-      y = "Climate Position"
+      x = "Grønt Parti Stemmeandel (Centreret)",
+      y = "Klimafokus"
     ) +
     # Fjern farvenøglen da vi har tekstforklaringer
     theme_minimal() +
@@ -1612,8 +1460,8 @@ p4 <- create_poly_rdd_plot(final_dataset, poly_degree = 4)  # Kvartisk
 # Kombiner plots i et 2x2 grid
 polynomial_comparison <- (p1 + p2) / (p3 + p4) + 
   plot_annotation(
-    title = "RDD Visualization: Comparison of Different Polynomial Specifications",
-    subtitle = "Effect of Green Party Parliamentary Entry on Climate Position",
+    title = "RDD Visualisering: Sammenligning af Forskellige Polynomiale Specifikationer",
+    subtitle = "Effekt af Grønt Parti Indtog i Parlamentet på Klimafokus",
     theme = theme(plot.title = element_text(size = 14, face = "bold"),
                  plot.subtitle = element_text(size = 10))
   )
@@ -1661,7 +1509,7 @@ b4 <- create_bandwidth_plot(final_dataset, poly_degree = 1, bandwidth = 5)
 bandwidth_comparison <- (b1 + b2) / (b3 + b4) + 
   plot_annotation(
     title = "RDD Visualization: Comparison of Different Bandwidths",
-    subtitle = "Effect of Green Party Parliamentary Entry on Climate Position (Linear Model)",
+    subtitle = "Effekt af Grønt Parti Indtog i Parlamentet på Klimafokus (Linear Model)",
     theme = theme(plot.title = element_text(size = 14, face = "bold"),
                  plot.subtitle = element_text(size = 10))
   )
@@ -1687,34 +1535,62 @@ rrp_facet_plot <- ggplot(
   geom_vline(xintercept = 0, linetype = "dashed") +
   facet_wrap(~ factor(rrp_i_p_lag1, labels = c("No RRP in Parliament", "RRP in Parliament"))) +
   labs(
-    title = "Effect of Green Party Entry by Radical Right Presence",
-    x = "Green Party Vote Share (Centered)",
-    y = "Climate Position"
+    title = "Effekt af Grønt Parti Indtog i Parlamentet ved Højreradikal Tilstedeværelse",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
-# By economic conditions
+# By BNP Vækst
 # Filtrer NA-værdierne ud og lav kun plot for good/poor economy
-economy_facet_plot <- ggplot(
-  # Filtrer NA-værdier fra factor_good_economy
-  final_dataset %>% filter(!is.na(factor_good_economy)), 
+bnp_facet_plot <- ggplot(
+  # Filtrer NA-værdier fra factor_high_gdp_growth_lag1
+  final_dataset %>% filter(!is.na(factor_high_gdp_growth_lag1)), 
   aes(x = centered_lagged_pervote_samlet, y = miljø_afhængig)) +
   geom_point(alpha = 0.3) +
   # Opdater subsetting til også at filtrere NA væk
   geom_smooth(data = subset(final_dataset, 
-                          !is.na(factor_good_economy) & centered_lagged_pervote_samlet < 0),
+                          !is.na(factor_high_gdp_growth_lag1) & centered_lagged_pervote_samlet < 0),
              method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
              color = "blue") +
   geom_smooth(data = subset(final_dataset, 
-                          !is.na(factor_good_economy) & centered_lagged_pervote_samlet >= 0),
+                          !is.na(factor_high_gdp_growth_lag1) & centered_lagged_pervote_samlet >= 0),
              method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
              color = "red") +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  facet_wrap(~ factor_good_economy) +
+  facet_wrap(~ factor_high_gdp_growth_lag1) +
   labs(
-    title = "Effect of Green Party Entry by Economic Conditions",
-    x = "Green Party Vote Share (Centered)",
-    y = "Climate Position"
+    title = "Effekt af Grønt Parti Indtog i Parlamentet ved Høj/Lav BNP Vækst",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
+  ) +
+  theme_minimal()
+
+# Vis plottet
+print(bnp_facet_plot)
+
+# By economic conditions
+# Filtrer NA-værdierne ud og lav kun plot for good/poor economy
+economy_facet_plot <- ggplot(
+  # Filtrer NA-værdier fra factor_good_economy_lag1
+  final_dataset %>% filter(!is.na(factor_good_economy_lag1)), 
+  aes(x = centered_lagged_pervote_samlet, y = miljø_afhængig)) +
+  geom_point(alpha = 0.3) +
+  # Opdater subsetting til også at filtrere NA væk
+  geom_smooth(data = subset(final_dataset, 
+                          !is.na(factor_good_economy_lag1) & centered_lagged_pervote_samlet < 0),
+             method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
+             color = "blue") +
+  geom_smooth(data = subset(final_dataset, 
+                          !is.na(factor_good_economy_lag1) & centered_lagged_pervote_samlet >= 0),
+             method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
+             color = "red") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ factor_good_economy_lag1) +
+  labs(
+    title = "Effekt af Grønt Parti Indtog i Parlamentet ved Økonomiske Forhold",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1733,11 +1609,11 @@ ideology_facet_plot <- ggplot(
              method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
              color = "red") +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  facet_wrap(~ factor(left_party_lag1, labels = c("Right-wing Parties", "Left-wing Parties"))) +
+  facet_wrap(~ factor(left_party_lag1, labels = c("Højreorienterede Partier", "Venstreorienterede Partier"))) +
   labs(
-    title = "Effect of Green Party Entry by Party Ideology",
-    x = "Green Party Vote Share (Centered)",
-    y = "Climate Position"
+    title = "Effekt af Grønt Parti Indtog i Parlamentet ved Partiideologi",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1753,11 +1629,11 @@ size_facet_plot <- ggplot(
              method = "lm", formula = y ~ poly(x, 2, raw = TRUE), 
              color = "red") +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  facet_wrap(~ factor(large_party_lag1, labels = c("Small Parties", "Large Parties"))) +
+  facet_wrap(~ factor(large_party_lag1, labels = c("Små Partier", "Store Partier"))) +
   labs(
-    title = "Effect of Green Party Entry by Party Size",
-    x = "Green Party Vote Share (Centered)",
-    y = "Climate Position"
+    title = "Effekt af Grønt Parti Indtog i Parlamentet ved Partistørrelse",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -1776,9 +1652,9 @@ placebo_plot <- ggplot(final_dataset, aes(x = centered_lagged_pervote_samlet, y 
              color = "red") +
   geom_vline(xintercept = 0, linetype = "dashed") +
   labs(
-    title = "Placebo Outcome Check: Party Ideology (RILE)",
-    x = "Green Party Vote Share (Centered)",
-    y = "Party Ideology (RILE Score)"
+    title = "Placebo Resultat Check: Partiideology (RILE)",
+    x = "Grønt Parti Stemmeandel (Centreret)",
+    y = "Partiideologi (RILE Score)"
   ) +
   theme_minimal()
 
@@ -1926,11 +1802,11 @@ co_occurrence_plot <- ggplot(melted_co_occurrence, aes(x = Var1, y = Var2, fill 
     plot.margin = margin(15, 15, 15, 15)
   ) +
   labs(
-    title = "Co-occurrence af Missing Værdier i Nøglevariable",
+    title = "Sammenkomst af Manglende Værider i Nøglevariable",
     subtitle = "Viser hvor ofte par af variable mangler værdier sammen",
     x = "",
     y = "",
-    fill = "Co-occurrence"
+    fill = "Sammenkomst"
   )
 
 # Gem co-occurrence plot med bedre dimensioner
@@ -1942,24 +1818,39 @@ print(missing_summary[, c("Pænt_Navn", "Antal_Missing", "Procent_Missing")])
 cat("\nAnalyseresultater med forbedrede visualiseringer er gemt i Figurer-EDA mappen.\n")
 
 # 6.2 Zero inflation analysis by party characteristics --------------
-zero_inflation_analysis <- final_dataset %>%
+party_family_prop_zero <- final_dataset %>%
+  dplyr::mutate(
+    party_family = case_when(
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
+    )
+  ) %>%
   dplyr::mutate(has_zero = miljø_afhængig == 0) %>%
-  dplyr::group_by(parfam) %>%
+  dplyr::group_by(party_family) %>%
   summarise(
     total = n(),
     n_zero = sum(has_zero, na.rm = TRUE),
     prop_zero = n_zero / total
   ) %>%
   arrange(desc(prop_zero))
-
-zero_by_parfam_plot <- ggplot(zero_inflation_analysis, 
-                             aes(x = reorder(parfam, prop_zero), y = prop_zero)) +
+  
+  zero_by_parfam_plot <- ggplot(party_family_prop_zero, aes(x = reorder(party_family, prop_zero), y = prop_zero)) +
   geom_bar(stat = "identity", fill = "darkred") +
   coord_flip() +
   labs(
-    title = "Proportion of Zero Climate Position Values by Party Family",
-    x = "Party Family",
-    y = "Proportion of Zero Values"
+    title = "Andel af Nul-Klimafokus Værdier per Partifamilie",
+    x = "Partifamilie",
+    y = "Andel af Nul-Klimafokus Værdier"
   ) +
   theme_minimal()
 
@@ -1967,18 +1858,18 @@ zero_by_parfam_plot <- ggplot(zero_inflation_analysis,
 party_family_time <- final_dataset %>%
   dplyr::mutate(
     party_family = case_when(
-      parfam == "10" ~ "Green",
-      parfam == "20" ~ "Communist/Socialist",
-      parfam == "30" ~ "Social Democratic",
-      parfam == "40" ~ "Liberal",
-      parfam == "50" ~ "Christian Democratic",
-      parfam == "60" ~ "Conservative",
-      parfam == "70" ~ "Nationalist",
-      parfam == "80" ~ "Agrarian",
-      parfam == "90" ~ "Ethnic/Regional",
-      parfam == "95" ~ "Special issue parties",
-      parfam == "98" ~ "Electoral alliance w/o leader",
-      TRUE ~ "Other"
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
     )
   ) %>%
   dplyr::filter(!is.na(party_family)) %>%
@@ -1993,9 +1884,9 @@ family_time_plot <- ggplot(party_family_time, aes(x = Year, y = mean_climate, co
   geom_point(size = 2) +
   labs(
     title = "Climate Position Over Time by Party Family",
-    x = "Year",
-    y = "Mean Climate Position",
-    color = "Party Family"
+    x = "Årstal",
+    y = "Gennemsnitlig Klimafokus",
+    color = "Partifamilie"
   ) +
   theme_minimal() +
   theme(legend.position = "bottom")
@@ -2012,10 +1903,10 @@ country_trends_plot <- ggplot(country_time_trends, aes(x = Year, y = mean_climat
   geom_line() +
   geom_point(size = 1) +
   labs(
-    title = "Climate Position Time Trends by Country",
-    x = "Year",
-    y = "Mean Climate Position",
-    color = "Country"
+    title = "Klimafokus Tidstendenser per Land",
+    x = "Årstal",
+    y = "Gennemsnitlig Klimafokus",
+    color = "Land"
   ) +
   theme_minimal() +
   theme(legend.position = "right") +
@@ -2055,10 +1946,10 @@ climate_events_plot <- climate_time_plot +
 parl_status_dist <- ggplot(final_dataset, aes(x = miljø_afhængig, fill = factor_lagged_i_parlament)) +
   geom_density(alpha = 0.5) +
   labs(
-    title = "Distribution of Climate Position by Green Party Parliamentary Status",
-    x = "Climate Position",
-    y = "Density",
-    fill = "Green Party Status"
+    title = "Fordeling af Klimafokus per Grønne Partiers Parlament Status",
+    x = "Klimafokus",
+    y = "Densitet",
+    fill = "Grønne Parties Status"
   ) +
   theme_minimal()
 
@@ -2071,10 +1962,10 @@ before_after_analysis <- final_dataset %>%
 before_after_plot <- ggplot(before_after_analysis, aes(x = threshold_status, y = miljø_afhængig, fill = threshold_status)) +
   geom_boxplot() +
   labs(
-    title = "Climate Position Below vs. Above Threshold",
-    x = "Threshold Status",
-    y = "Climate Position",
-    fill = "Threshold Status"
+    title = "Klimafokus Over og Under Skæringspunkt",
+    x = "Skæringspunkt Status",
+    y = "Klimafokus",
+    fill = "Skæringspunkt Status"
   ) +
   theme_minimal()
 
@@ -2084,9 +1975,9 @@ economy_scatter <- ggplot(final_dataset, aes(x = `GDP_per_capita_lag1`, y = milj
   geom_smooth(method = "loess") +
   facet_wrap(~ factor_lagged_i_parlament) +
   labs(
-    title = "Climate Position vs. GDP Growth by Parliamentary Status",
-    x = "GDP_per_capita_lag1",
-    y = "Climate Position"
+    title = "Klimaposition vs. BNP Vækst per Parlamentarisk Status",
+    x = "BNP per Indbyggertal Vækst",
+    y = "Klimafokus"
   ) +
   theme_minimal()
 
@@ -2094,9 +1985,9 @@ economy_scatter <- ggplot(final_dataset, aes(x = `GDP_per_capita_lag1`, y = milj
 ridge_plot <- ggplot(final_dataset, aes(x = miljø_afhængig, y = countryname, fill = countryname)) +
   geom_density_ridges(alpha = 0.6) +
   labs(
-    title = "Distribution of Climate Position by Country",
-    x = "Climate Position",
-    y = "Country"
+    title = "Fordeling af Klimafokus per Land",
+    x = "Klimafokus",
+    y = "Land"
   ) +
   theme_minimal() +
   theme(legend.position = "none")
@@ -2140,6 +2031,7 @@ eda_plots <- list(
   polynomial_comparison = polynomial_comparison,
   bandwidth_comparison = bandwidth_comparison,
   rrp_facet_plot = rrp_facet_plot,
+  bnp_facet_plot = bnp_facet_plot,
   economy_facet_plot = economy_facet_plot,
   ideology_facet_plot = ideology_facet_plot,
   size_facet_plot = size_facet_plot,
@@ -2168,7 +2060,7 @@ eda_tables <- list(
   zero_prop = zero_prop,
   bar_plot_missing = bar_plot_missing,
   heatmap_plot_missing = heatmap_plot_missing,
-  zero_inflation_analysis = zero_inflation_analysis
+  party_family_prop_zero = party_family_prop_zero
 )
 
 # Create main directory structure for "Eksplorativ Analyse"
@@ -2270,18 +2162,18 @@ for (i in seq_along(eda_tables)) {
 final_dataset <- final_dataset %>%
   mutate(
     party_family = case_when(
-      parfam == "10" ~ "Green",
-      parfam == "20" ~ "Socialist/Other left parties",
-      parfam == "30" ~ "Social Democratic",
-      parfam == "40" ~ "Liberal",
-      parfam == "50" ~ "Christian Democratic",
-      parfam == "60" ~ "Conservative",
-      parfam == "70" ~ "Nationalist",
-      parfam == "80" ~ "Agrarian",
-      parfam == "90" ~ "Ethnic/Regional",
-      parfam == "95" ~ "Special issue parties",
-      parfam == "98" ~ "Electoral alliance w/o leader",
-      TRUE ~ "Other"
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
     )
   )
 
@@ -2303,13 +2195,13 @@ climate_heatmap <- ggplot(heatmap_data, aes(x = party_family, y = countryname, f
     mid = "white", 
     high = "green", 
     midpoint = 0,
-    name = "Avg. Climate\nPosition"
+    name = "Gns. Klimafokus"
   ) +
   geom_text(aes(label = round(avg_climate, 1)), size = 3) +
   labs(
-    title = "Average Climate Position by Party Family and Country",
-    x = "Party Family",
-    y = "Country"
+    title = "Gennemsnitlig Klimafokus per Partifamilie og Land",
+    x = "Partifamilie",
+    y = "Land"
   ) +
   theme_minimal() +
   theme(
@@ -2390,10 +2282,10 @@ density_test_plot_substitute <- ggplot(final_dataset, aes(x = centered_lagged_pe
   geom_histogram(binwidth = 0.25, fill = "steelblue", color = "darkblue", alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
   labs(
-    title = "Distribution Around Threshold (Simple Histogram)",
-    subtitle = "Note: rddensity test failed - showing basic histogram instead",
-    x = "Centered Vote Share",
-    y = "Count"
+    title = "Fordeling Omkring Skæringspunktet (Simpelt Histogram)",
+    subtitle = "Note: rddensity test fejlede - Viser simpelt histogram i stedet",
+    x = "Centreret Stemmeandel",
+    y = "Antal"
   ) +
   theme_minimal()
 
@@ -2449,6 +2341,7 @@ print(conditional_means_comparison)
 print(polynomial_comparison)
 print(bandwidth_comparison)
 print(rrp_facet_plot)
+print(bnp_facet_plot)
 print(economy_facet_plot)
 print(ideology_facet_plot)
 print(size_facet_plot)
@@ -2461,6 +2354,7 @@ ggsave(file.path(section_dir, "conditional_means_comparison.png"), conditional_m
 ggsave(file.path(section_dir, "polynomial_comparison.png"), polynomial_comparison, width = 10, height = 8, dpi = 300)
 ggsave(file.path(section_dir, "bandwidth_comparison.png"), bandwidth_comparison, width = 10, height = 8, dpi = 300)
 ggsave(file.path(section_dir, "rrp_facet_plot.png"), rrp_facet_plot, width = 10, height = 6, dpi = 300)
+ggsave(file.path(section_dir, "bnp_facet_plot.png"), bnp_facet_plot, width = 10, height = 6, dpi = 300)
 ggsave(file.path(section_dir, "economy_facet_plot.png"), economy_facet_plot, width = 10, height = 6, dpi = 300)
 ggsave(file.path(section_dir, "ideology_facet_plot.png"), ideology_facet_plot, width = 10, height = 6, dpi = 300)
 ggsave(file.path(section_dir, "size_facet_plot.png"), size_facet_plot, width = 10, height = 6, dpi = 300)
@@ -2605,10 +2499,6 @@ lines(kde_full$x, apply(boot_result$t, 2, quantile, probs = 0.975), col = "red",
 ```
 
 
-# 3. Testing the Five Hypotheses
-
-## 3.1 H1: When green parties enter parliament, climate focus in mainstream parties decreases
-
 ```{r h1_analysis}
 # Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
 dir.create("Analyse", showWarnings = FALSE)
@@ -2645,9 +2535,9 @@ h1_plot_rdd <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect of Green Party Entry on Mainstream Climate Focus"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "Effekt af Grønt partis Indtog på Mainstream Klimafokus"
 )
 
 # Save the plot
@@ -2765,9 +2655,9 @@ h2_plot_no_rrp <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H2a: Climate Position without RRP"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H2a: Klimafokus uden HRP"
 )
 
 # RDD visualization for With RRP
@@ -2777,16 +2667,16 @@ h2_plot_with_rrp <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H2b: Climate Position with RRP"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H2b: Klimafokus med HRP"
 )
 
 # Først gemmer vi det kombinerede plot i en variabel
 combined_plot <- grid.arrange(h2_plot_no_rrp, h2_plot_with_rrp, 
              ncol = 2,
              widths = c(1, 1),
-             top = "Comparison of Green Party Effect with/without RRP in Parliament")
+             top = "Sammenligning af Grønt Partis Effekt med/uden HRP i Parlament")
 
 # Derefter bruger vi ggsave til at gemme plottet
 ggsave("Analyse/H2/comparison_green_party_effect.png", combined_plot, width = 12, height = 6)
@@ -2856,6 +2746,47 @@ writeLines(main_results_table_h2_with_rdd, file.path(getwd(), "Analyse/H2/h2_wit
 print(main_results_table_h2_with_rdd)
 write.csv(main_results_table_h2_with_rdd, "Analyse/H2/h2_with_rdd_main_results.csv", row.names = FALSE)  
 
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h2_rdd_with_rrp$Estimate[1] - h2_rdd_no_rrp$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h2_rdd_with_rrp$se[1]^2 + h2_rdd_no_rrp$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (With RRP - No RRP)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (With RRP - No RRP)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Analyse/H2/h2_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Analyse/H2/h2_difference_results.csv", row.names = FALSE)
+
+
 # 3. ROBUSTNESS CHECKS ----------------
 
 # 3.1 Different Bandwidths and Polynomial Orders ----------
@@ -2889,8 +2820,6 @@ print(combined_results)
 write.csv(combined_results, "Analyse/H2/h2_rdd_robust.csv", row.names = FALSE)
 ```
 
-
-## 3.3
 
 ```{r h3_analysis}
 # Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
@@ -2926,9 +2855,9 @@ h3_plot_high_gdp <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H3a: Climate Position med lav GDP"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H3a: Klimafokus med lav BNP"
 )
 
 # RDD visualization for lav gdp
@@ -2938,19 +2867,20 @@ h3_plot_low_gdp <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H3b: Climate Position med høj GDP"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H3b: Klimafokus med høj BNP"
 )
 
 # Først gemmer vi det kombinerede plot i en variabel
 combined_plot_gdp <- grid.arrange(h3_plot_high_gdp, h3_plot_low_gdp, 
              ncol = 2,
              widths = c(1, 1),
-             top = "Comparison of Green Party Effect with høj/lav GDP")
+             top = "Sammenligning af Grønt Partis Effekt med høj/lav GDP")
 
 # Derefter bruger vi ggsave til at gemme plottet
 ggsave("Analyse/H3/comparison_green_party_gdp_effect.png", combined_plot_gdp, width = 12, height = 6)
+
 # 1.2 RDD ESTIMATION GDP ----------------
 ## Standard rdrobust
 h3_rdd_high_gdp <- rdrobust(
@@ -3016,6 +2946,46 @@ writeLines(main_results_table_h3_low_gdp, file.path(getwd(), "Analyse/H3/h3_gdp_
 print(main_results_table_h3_low_gdp)
 write.csv(main_results_table_h3_low_gdp, "Analyse/H3/h3_gdp_low_main_results.csv", row.names = FALSE)  
 
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h3_rdd_high_gdp$Estimate[1] - h3_rdd_low_gdp$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h3_rdd_high_gdp$se[1]^2 + h3_rdd_low_gdp$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (High GDP - Low GDP)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (High GDP - Low GDP)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Analyse/H3/h3_gdp_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Analyse/H3/h3_gdp_difference_results.csv", row.names = FALSE)
+
 # 1.3 ROBUSTNESS CHECKS GDP ----------------
 
 # Robustness analysis med forskellige båndbredder
@@ -3057,7 +3027,7 @@ if (requireNamespace("knitr", quietly = TRUE)) {
                      format = "markdown")
   
   # Gem markdown-tabellen til en fil
-  write(md_table, file = "Analyse/H3/h3_robustness_table.md")
+  write(md_table, file = "Analyse/H3/h3_bnp_robustness_table.md")
   
   # Udskriv også i konsollen for reference
   print(md_table)
@@ -3088,9 +3058,9 @@ h3_plot_good <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H3c: Effect Under Good Economic Conditions"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H3c: Klimafokus med God Økonomi"
 )
 print(h3_plot_good)
 
@@ -3101,9 +3071,9 @@ h3_plot_bad <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H3d: Effect Under Poor Economic Conditions"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "H3d: Klimafokus med Dårlig Økonomi"
 )
 print(h3_plot_bad)
 
@@ -3115,7 +3085,7 @@ ggsave("Analyse/H3/h3_plot_bad_economy.png", h3_plot_bad, width = 10, height = 6
 combined_plot_good_bad_economy <- grid.arrange(h3_plot_good, h3_plot_bad, 
              ncol = 2,
              widths = c(1, 1),
-             top = "Comparison of Green Party Effect with Good/Bad Economy")
+             top = "Sammenligning af Grønt Partis Effekt med God/Dårlig Økonomi")
 
 ggsave("Analyse/H3/comparison_green_party_economy_effect.png", combined_plot_good_bad_economy, width = 12, height = 6)
 
@@ -3128,7 +3098,7 @@ h3_rdd_good_economy <- rdrobust(
   c = 0,
   p = 1,  # linear polynomial
   kernel = "uniform",
-  bwselect = "mserd"
+  h = 1.5
 )
 
 # Opret tabel direkte fra h4_left_rdd objektet
@@ -3184,6 +3154,46 @@ main_results_table_h3_bad_economy <- knitr::kable(main_results_table_h3_bad_econ
 writeLines(main_results_table_h3_bad_economy, file.path(getwd(), "Analyse/H3/h3_economy_bad_results.md"))
 print(main_results_table_h3_bad_economy)
 write.csv(main_results_table_h3_bad_economy, "Analyse/H3/h3_economy_bad_results.csv", row.names = FALSE)  
+
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h3_rdd_good_economy$Estimate[1] - h3_rdd_bad_economy$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h3_rdd_good_economy$se[1]^2 + h3_rdd_bad_economy$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (Good Economy - Bad Economy)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (Good Economy - Bad Economy)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Analyse/H3/h3_economy_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Analyse/H3/h3_economy_difference_results.csv", row.names = FALSE)
 
 # 2.3 ROBUSTNESS CHECKS good/bad economy ----------------
 
@@ -3246,8 +3256,6 @@ if (requireNamespace("knitr", quietly = TRUE)) {
 
 
 
-## 3.2 H4: When green parties enter parliament, left-wing mainstream parties increase climate focus
-
 ```{r h4_analysis}
 dir.create("Analyse", showWarnings = FALSE)
 
@@ -3278,8 +3286,8 @@ h4_plot_right <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
   title = "H4a: Effekt på højreorienterede partier"
 )
 print(h4_plot_right)
@@ -3291,21 +3299,21 @@ h4_plot_left <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
   title = "H4b: Effekt på venstreorienterede partier"
 )
 print(h4_plot_left)
 
-# Gem plots i den specifikke mappe
-ggsave("Analyse/H4/h4_plot_right.png", h4_plot_right, width = 10, height = 6, dpi = 300)
-ggsave("Analyse/H4/h4_plot_left.png", h4_plot_left, width = 10, height = 6, dpi = 300)
+# Først gemmer vi det kombinerede plot i en variabel
+combined_plot_h4 <- grid.arrange(h4_plot_right, h4_plot_left, 
+             ncol = 2,
+             widths = c(1, 1),
+             top = "Sammenligning af Grønt Partis Effekt med Venstre/Højre")
 
-# Gem kombineret plot
-ggsave("Analyse/H4/h4_plot_combined.png", 
-        gridExtra::grid.arrange(h4_plot_right, h4_plot_left, ncol = 2,
-                                top = "H4: Effekt opdelt efter partiideologi"), 
-        width = 16, height = 6, dpi = 300)
+# Derefter bruger vi ggsave til at gemme plottet
+ggsave("Analyse/H4/comparison_green_party_hv_effect.png", combined_plot_h4, width = 12, height = 6)
+
 
 # 1.2 RDD ESTIMATION ----------------
 
@@ -3372,7 +3380,47 @@ main_results_table_h4_left <- knitr::kable(main_results_table_h4_left,
 writeLines(main_results_table_h4_left, file.path(getwd(), "Analyse/H4/h4_left_main_results.md"))
 print(main_results_table_h4_left)
 write.csv(main_results_table_h4_left, "Analyse/H4/h4_left_main_results.csv", row.names = FALSE)  
-  
+
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h4_rdd_right$Estimate[1] - h4_rdd_left$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h4_rdd_right$se[1]^2 + h4_rdd_left$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (Right Party - Left Party)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (Right Party - Left Party)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Analyse/H4/h4_party_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Analyse/H4/h4_party_difference_results.csv", row.names = FALSE)
+
 # 1.3 ROBUSTNESS CHECKS ----------------
 
 # Robustness analysis med forskellige båndbredder
@@ -3410,7 +3458,6 @@ write.csv(results_df_h4_left, "Analyse/H4/results_df_h4_left_parties.csv", row.n
 write.csv(combined_results_ideology, "Analyse/H4/combined_results_ideology.csv", row.names = FALSE)
 ```
 
-## 3.3 H5: Larger mainstream parties respond less to green parties in parliament
 
 ```{r h5_analysis}
 dir.create("Analyse", showWarnings = FALSE)
@@ -3434,6 +3481,9 @@ nrow(h5_analysis_data)
 large_parties <- subset(h5_analysis_data, large_party_lag1 == 1)
 small_parties <- subset(h5_analysis_data, large_party_lag1 == 0)
 
+large_parties_old <- subset(h5_analysis_data, large_party_alt_lag1 == 1)
+small_parties_old <- subset(h5_analysis_data, large_party_alt_lag1 == 0)
+
 # 1.1 VISUAL INSPECTION OF THE DISCONTINUITY ----------------
 # Visual confirmation for large parties
 h5_large_plot <- plot_rdd(
@@ -3442,9 +3492,9 @@ h5_large_plot <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H5: Effect on Large Mainstream Parties"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "Effekt af Grønt partis Indtog på Store Mainstreampartiers Klimafokus"
 )
 print(h5_large_plot)
 
@@ -3455,21 +3505,21 @@ h5_small_plot <- plot_rdd(
   y_var = "miljø_afhængig",
   group_var = "factor_lagged_i_parlament",
   x_limit = 10,
-  x_label = "Green Party Vote Share (centered)",
-  y_label = "Climate Position",
-  title = "H5: Effect on Small Mainstream Parties"
+  x_label = "Grønt Parti Stemmeandel (Centreret ved skæringspunktet)",
+  y_label = "Klimafokus",
+  title = "Effekt af Grønt partis Indtog på Små Mainstreampartiers Klimafokus"
 )
 print(h5_small_plot)
 
-# Gem plots
-ggsave("Analyse/H5/h5_large_parties_plot.png", h5_large_plot, width = 10, height = 6, dpi = 300)
-ggsave("Analyse/H5/h5_small_parties_plot.png", h5_small_plot, width = 10, height = 6, dpi = 300)
+combined_plot_stor_lille <- grid.arrange(h5_large_plot, h5_small_plot, 
+             ncol = 2,
+             widths = c(1, 1),
+             top = "Sammenligning af Grønt Partis Effekt Store og Små partier")
 
-# Gem kombineret plot
-ggsave("Analyse/H5/h5_combined_parties_plot.png", 
-       gridExtra::grid.arrange(h5_large_plot, h5_small_plot, ncol = 2,
-                               top = "H5: Effect on Mainstream Parties"), 
-       width = 16, height = 6, dpi = 300)
+# Derefter bruger vi ggsave til at gemme plottet
+ggsave("Analyse/H5/comparison_green_party_stor_lille_effect.png", combined_plot_stor_lille, width = 12, height = 6)
+
+
 
 # 1.2 RDD ESTIMATION ----------------
 h5_large_rdd <- rdrobust(
@@ -3482,7 +3532,6 @@ h5_large_rdd <- rdrobust(
   )
   summary(h5_large_rdd)
 
-# Opret tabel direkte fra h4_left_rdd objektet
 main_results_table_h5_large <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h5_large_rdd$bws[1, 1], 3),
@@ -3495,7 +3544,7 @@ main_results_table_h5_large <- data.frame(
   
 # Create a nice table for presentation
 main_results_table_h5_large <- knitr::kable(main_results_table_h5_large, 
-                                  caption = "Main RDD Results for H5_right",
+                                  caption = "Main RDD Results for H5_large",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
                                                "p-value", "95% CI Lower", "95% CI Upper"))
 
@@ -3513,7 +3562,6 @@ h5_small_rdd <- rdrobust(
     bwselect = "mserd"
   )
 
-# Opret tabel direkte fra h4_left_rdd objektet
 main_results_table_h5_small <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h5_small_rdd$bws[1, 1], 3),
@@ -3534,7 +3582,50 @@ writeLines(main_results_table_h5_small, file.path(getwd(), "Analyse/H5/h5_small_
 print(main_results_table_h5_small)
 write.csv(main_results_table_h5_small, "Analyse/H5/h5_small_main_results.csv", row.names = FALSE) 
 
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h5_large_rdd$Estimate[1] - h5_small_rdd$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h5_large_rdd$se[1]^2 + h5_small_rdd$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (Large Parties - Small Parties)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (Large Parties - Small Parties)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Analyse/H5/h5_size_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Analyse/H5/h5_size_difference_results.csv", row.names = FALSE)
+
 # 1.3 ROBUSTNESS CHECKS ----------------
+# Robustness analysis with different bandwidths
+covariates_to_use <- c("country", "edate")
+
 # Robustness analysis with different bandwidths
 covariates_to_use <- c("country", "edate")
 
@@ -3580,7 +3671,7 @@ dir.create("Robusthedstests", showWarnings = FALSE)
 dir.create("Robusthedstests/H1 tests - Appendiks", showWarnings = FALSE)
 
 # 1.1 Coefficient Stability Plots for H1 ----------------
-h1_stability_plot <- create_coefficient_stability_plot(
+h1_stability_plot  <- create_coefficient_stability_plot(
   data = h1_analysis_data,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -3589,7 +3680,12 @@ h1_stability_plot <- create_coefficient_stability_plot(
   covariates = c("country", "edate"),
   title = "H1: When green parties enter parliament, climate focus changes"
 )
-ggsave("Robusthedstests/H1 tests - Appendiks/h1_stability_plot.png", plot = h1_stability_plot$plot, width = 10, height = 6, dpi = 300)
+
+ggsave("Robusthedstests/H1 tests - Appendiks/h1_stability_plot.png", plot = h1_stability_plot, width = 10, height = 6, dpi = 300)
+
+pdf("Robusthedstests/H1 tests - Appendiks/h1_stability_plot.pdf", width = 10, height = 6)
+print(h1_stability_plot)
+dev.off()
 
 # 1.2 Placebo Threshold Tests for H1 ----------------
 h1_placebo_threshold <- run_placebo_threshold_test(
@@ -3609,65 +3705,15 @@ h1_placebo_plot <- plot_placebo_threshold_test(
 )
 ggsave("Robusthedstests/H1 tests - Appendiks/h1_placebo_plot.png", plot = h1_placebo_plot, width = 10, height = 6, dpi = 300)
 
-# 1.3 Outcome Placebo Tests for H1 ----------------
-placebo_vars <- c("rile_lowe")  # Use variables unaffected by treatment
-h1_outcome_placebo <- run_outcome_placebo_test(
-  data = h1_analysis_data,
-  real_outcome_var = "miljø_afhængig",
-  placebo_outcome_vars = placebo_vars,
-  running_var = "centered_lagged_pervote_samlet",
-  polynomial = 1,
-  bandwidth = 2,
-  covariates = c("country", "edate")
-)
-h1_outcome_placebo_plot <- plot_outcome_placebo_test(
-  h1_outcome_placebo,
-  title = "H1: Outcome Placebo Test"
-)
-ggsave("h1_outcome_placebo_plot.png", plot = h1_outcome_placebo_plot, width = 10, height = 6, dpi = 300)
-
-# 1.4 Density Test for H1 (Manipulation Test) ----------------
+# 1.3 Density Test for H1 (Manipulation Test) ----------------
 # Add McCrary density test
-h1_density_test <- rddensity(h1_analysis_data$centered_lagged_pervote_samlet, c = 0)
+h1_density_test <- rddensity(h1_analysis_data$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h1_density_test_summary <- summary(h1_density_test)
 h1_density_plot <- rdplotdensity(h1_density_test, 
                                h1_analysis_data$centered_lagged_pervote_samlet,
                                title = "H1: Density Test of Running Variable")
 summary(h1_density_test)
 ggsave("Robusthedstests/H1 tests - Appendiks/h1_density_test.png", plot = h1_density_plot$Estplot, width = 10, height = 6, dpi = 300)
-
-# 1.5 Covariate Balance Tests for H1 ----------------
-# Add systematic balance tests for covariates
-h1_balance_covariates <- c("rile_lowe", "GDP_per_capita", "Unemployment")
-h1_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-for (cov in h1_balance_covariates) {
-  if (cov %in% names(h1_analysis_data)) {
-    balance_check <- rdrobust(
-      y = h1_analysis_data[[cov]],
-      x = h1_analysis_data$centered_lagged_pervote_samlet,
-      c = 0,
-      p = 1,
-      kernel = "triangular",
-      bwselect = "mserd"
-    )
-    h1_balance_results <- rbind(h1_balance_results, data.frame(
-      Covariate = cov,
-      RDD_Estimate = balance_check$Estimate[1],
-      Std_Error = balance_check$se[1],
-      P_value = balance_check$pv[1]
-    ))
-  }
-}
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h1_balance_results, 
-               caption = "H1: Covariate Balance Tests")
-}
-write.csv(h1_balance_results, "Robusthedstests/H1 tests - Appendiks/h1_balance_tests.csv", row.names = FALSE)
 
 # ============================================================================
 # 2. H2: RADICAL RIGHT PARTY PRESENCE EFFECT
@@ -3689,6 +3735,7 @@ h2_no_rrp_plot <- create_coefficient_stability_plot(
   covariates = c("country", "edate"),
   title = "H2: No Radical Right Parties"
 )
+
 h2_with_rrp_plot <- create_coefficient_stability_plot(
   data = data_with_rrp,
   outcome_var = "miljø_afhængig",
@@ -3726,7 +3773,7 @@ h2_comparison_plot_p2 <- compare_coefficient_stability(
   bw_list = seq(1, 3, by = 0.5),
   polynomial = 2,
   covariates = c("country", "edate"),
-  title = "H2: Effect of Green Parties (Polynomial Order 1)"
+  title = "H2: Effect of Green Parties (Polynomial Order 2)"
 )
 
 # 2.3 Comparison of RRP Effects Across Polynomials ----------------
@@ -3738,7 +3785,7 @@ h2_comparison_plot_p3 <- compare_coefficient_stability(
   bw_list = seq(1, 3, by = 0.5),
   polynomial = 3,
   covariates = c("country", "edate"),
-  title = "H2: Effect of Green Parties (Polynomial Order 1)"
+  title = "H2: Effect of Green Parties (Polynomial Order 3)"
 )
 
 # 2.3 Comparison of RRP Effects Across Polynomials ----------------
@@ -3750,7 +3797,7 @@ h2_comparison_plot_p4 <- compare_coefficient_stability(
   bw_list = seq(1, 3, by = 0.5),
   polynomial = 4,
   covariates = c("country", "edate"),
-  title = "H2: Effect of Green Parties (Polynomial Order 1)"
+  title = "H2: Effect of Green Parties (Polynomial Order 4)"
 )
 
 
@@ -3801,14 +3848,14 @@ ggsave("Robusthedstests/H2 tests - Appendiks/h2_with_rrp_placebo.png", plot = h2
 
 # 2.5 Density Tests for H2 ----------------
 # Add McCrary density test for ingen rrp
-h2_no_rrp_density_test <- rddensity(data_no_rrp$centered_lagged_pervote_samlet, c = 0)
+h2_no_rrp_density_test <- rddensity(data_no_rrp$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h2_no_rrp_density_summary <- summary(h2_no_rrp_density_test)
 h2_no_rrp_density_plot <- rdplotdensity(h2_no_rrp_density_test, 
                                             data_no_rrp$centered_lagged_pervote_samlet,
                                             title = "H2: Density Test (Uden Højreradikale Partier)")
 
 # Add McCrary density test for med rrp
-h2_med_rrp_density_test <- rddensity(data_with_rrp$centered_lagged_pervote_samlet, c = 0)
+h2_med_rrp_density_test <- rddensity(data_with_rrp$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h2_med_rrp_density_summary <- summary(h2_med_rrp_density_test)
 h2_med_rrp_density_plot <- rdplotdensity(h2_med_rrp_density_test, 
                                            data_with_rrp$centered_lagged_pervote_samlet,
@@ -3821,40 +3868,6 @@ summary(h2_med_rrp_density_test)
 ggsave("Robusthedstests/H2 tests - Appendiks/h2_no_rrp_density.png", plot = h2_no_rrp_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H2 tests - Appendiks/h2_med_rrp_density.png", plot = h2_med_rrp_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 
-h2_no_rrp_density_test_alternativ <- DCdensity(data_no_rrp$centered_lagged_pervote_samlet, c = 0, verbose = TRUE)
-h2_med_rrp_density_test_alternativ <- DCdensity(data_with_rrp$centered_lagged_pervote_samlet, c = 0, verbose = TRUE)
-
-print(h2_no_rrp_density_test_alternativ)
-print(h2_med_rrp_density_test_alternativ)
-
-h2_density_plot_with_rrp_alternativ <- ggplot(data_with_rrp, aes(x = centered_lagged_pervote_samlet)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 30, alpha = 0.5) +
-  geom_density() +  # Use default bandwidth since we can't extract it easily
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(
-    title = "Density Test for Running Variable (With RRP)",
-    subtitle = paste("McCrary test p-value:", round(h2_med_rrp_density_test_alternativ, 4)),
-    x = "Green Party Vote Share (Centered)",
-    y = "Density"
-  ) +
-  theme_minimal()
-
-# For data without RRP
-h2_density_plot_no_rrp_alternativ <- ggplot(data_no_rrp, aes(x = centered_lagged_pervote_samlet)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 30, alpha = 0.5) +
-  geom_density() +  # Use default bandwidth
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(
-    title = "Density Test for Running Variable (No RRP)",
-    subtitle = paste("McCrary test p-value:", round(h2_no_rrp_density_test_alternativ, 4)),
-    x = "Green Party Vote Share (Centered)",
-    y = "Density"
-  ) +
-  theme_minimal()
-
-ggsave("Robusthedstests/H2 tests - Appendiks/h2_med_rrp_density_alternativ.png", plot = h2_density_plot_with_rrp_alternativ, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H2 tests - Appendiks/h2_no_rrp_density_alternativ.png", plot = h2_density_plot_no_rrp_alternativ, width = 10, height = 6, dpi = 300)
-
 # ============================================================================
 # 3. H3: ECONOMIC CONDITIONS EFFECT
 # ============================================================================
@@ -3864,7 +3877,7 @@ dir.create("Robusthedstests", showWarnings = FALSE)
 # Opret derefter undermappen H2 tests - Appendiks
 dir.create("Robusthedstests/H3 tests - Appendiks", showWarnings = FALSE)
 
-# 3.2 Coefficient Stability Plots for H3 (GDP Growth) ----------------
+# 2.2 Coefficient Stability Plots for H3 ----------------
 high_gdp_stability_plot <- create_coefficient_stability_plot(
   data = h3_high_gdp,
   outcome_var = "miljø_afhængig",
@@ -3874,7 +3887,6 @@ high_gdp_stability_plot <- create_coefficient_stability_plot(
   covariates = c("country", "edate"),
   title = "H3: Effect under High GDP Growth"
 )
-
 low_gdp_stability_plot <- create_coefficient_stability_plot(
   data = h3_low_gdp,
   outcome_var = "miljø_afhængig",
@@ -3884,17 +3896,73 @@ low_gdp_stability_plot <- create_coefficient_stability_plot(
   covariates = c("country", "edate"),
   title = "H3: Effect under Low GDP Growth"
 )
-
-# Save plots
 pdf("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_stability.pdf", width = 10, height = 6)
-print(high_gdp_stability_plot$plot)
+print(h3_high_gdp_stability)
 dev.off()
-
 pdf("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_stability.pdf", width = 10, height = 6)
-print(low_gdp_stability_plot$plot)
+print(h3_low_gdp_stability)
 dev.off()
 
-# 3.3 Coefficient Stability Plots for H3 (Economic Index) ----------------
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p1_gdp <- compare_coefficient_stability(
+  data_list = list(h3_high_gdp, h3_low_gdp),
+  labels = c("High GDP", "Low GDP"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 1)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p2_gdp <- compare_coefficient_stability(
+  data_list = list(h3_high_gdp, h3_low_gdp),
+  labels = c("High GDP", "Low GDP"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 2,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 2)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p3_gdp <- compare_coefficient_stability(
+  data_list = list(h3_high_gdp, h3_low_gdp),
+  labels = c("High GDP", "Low GDP"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p4_gdp <- compare_coefficient_stability(
+  data_list = list(h3_high_gdp, h3_low_gdp),
+  labels = c("High GDP", "Low GDP"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 4)"
+)
+
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  h3_all_poly_comparison_gdp <- gridExtra::grid.arrange(
+    h3_comparison_plot_p1_gdp, h3_comparison_plot_p2_gdp,
+    h3_comparison_plot_p3_gdp, h3_comparison_plot_p4_gdp,
+    ncol = 2, nrow = 2,
+    top = "H3: Effect of Green Parties Moderated by GDP"
+  )
+  ggsave("Robusthedstests/H3 tests - Appendiks/h3_all_polynomial_comparison_gdp.png", h3_all_poly_comparison_gdp, width = 12, height = 10, dpi = 300)
+}
+
+# 3.6? Coeffiecient Stability Plot H3 - Economy
+# 2.2 Coefficient Stability Plots for H3 ----------------
 good_economy_stability_plot <- create_coefficient_stability_plot(
   data = clean_data_good_economy,
   outcome_var = "miljø_afhængig",
@@ -3915,7 +3983,6 @@ bad_economy_stability_plot <- create_coefficient_stability_plot(
   title = "H3: Effect under Poor Economic Conditions"
 )
 
-# Save plots
 pdf("Robusthedstests/H3 tests - Appendiks/h3_good_economy_stability.pdf", width = 10, height = 6)
 print(good_economy_stability_plot$plot)
 dev.off()
@@ -3924,41 +3991,10 @@ pdf("Robusthedstests/H3 tests - Appendiks/h3_bad_economy_stability.pdf", width =
 print(bad_economy_stability_plot$plot)
 dev.off()
 
-# 3.4 Direct Comparison of GDP Growth Effects ----------------
-gdp_comparison_plot <- compare_coefficient_stability(
-  data_list = list(h3_high_gdp, h3_low_gdp),
-  labels = c("High GDP Growth", "Low GDP Growth"),
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  bw_list = seq(1, 3, by = 0.5),
-  polynomial = 1,
-  covariates = c("country", "edate"),
-  title = "H3: Effect of Green Parties Moderated by GDP Growth"
-)
-
-# Save comparison plot
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_gdp_comparison.png", plot = gdp_comparison_plot, width = 10, height = 6, dpi = 300)
-
-# 3.5 Direct Comparison of Economic Index Effects ----------------
-economy_comparison_plot <- compare_coefficient_stability(
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p1_economy <- compare_coefficient_stability(
   data_list = list(clean_data_good_economy, clean_data_bad_economy),
-  labels = c("Good Economic Conditions", "Poor Economic Conditions"),
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  bw_list = seq(1, 3, by = 0.5),
-  polynomial = 1,
-  covariates = c("country", "edate"),
-  title = "H3: Effect of Green Parties Moderated by Economic Conditions"
-)
-
-# Save comparison plot
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_economy_comparison.png", plot = economy_comparison_plot, width = 10, height = 6, dpi = 300)
-
-# 3.6 Multi-polynomial Comparisons ----------------
-# GDP Growth with different polynomial orders
-economy_comparison_plot_p1 <- compare_coefficient_stability(
-  data_list = list(h3_high_gdp, h3_low_gdp),
-  labels = c("High GDP Growth", "Low GDP Growth"),
+  labels = c("Good Economy", "Bad Economy"),
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
   bw_list = seq(1, 3, by = 0.5),
@@ -3967,9 +4003,10 @@ economy_comparison_plot_p1 <- compare_coefficient_stability(
   title = "H3: Effect of Green Parties (Polynomial Order 1)"
 )
 
-economy_comparison_plot_p2 <- compare_coefficient_stability(
-  data_list = list(h3_high_gdp, h3_low_gdp),
-  labels = c("High GDP Growth", "Low GDP Growth"),
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p2_economy <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("Good Economy", "Bad Economy"),
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
   bw_list = seq(1, 3, by = 0.5),
@@ -3978,16 +4015,38 @@ economy_comparison_plot_p2 <- compare_coefficient_stability(
   title = "H3: Effect of Green Parties (Polynomial Order 2)"
 )
 
-# Combine plots in grid if gridExtra is available
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p3_economy <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("Good Economy", "Bad Economy"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h3_comparison_plot_p4_economy <- compare_coefficient_stability(
+  data_list = list(clean_data_good_economy, clean_data_bad_economy),
+  labels = c("Good Economy", "Bad Economy"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H3: Effect of Green Parties (Polynomial Order 4)"
+)
+
 if (requireNamespace("gridExtra", quietly = TRUE)) {
-  economy_poly_comparison <- gridExtra::grid.arrange(
-    economy_comparison_plot_p1, economy_comparison_plot_p2,
-    ncol = 2,
-    top = "H3: Effect of Green Parties Moderated by GDP Growth"
+  h3_all_poly_comparison_economy <- gridExtra::grid.arrange(
+    h3_comparison_plot_p1_economy, h3_comparison_plot_p2_economy,
+    h3_comparison_plot_p3_economy, h3_comparison_plot_p4_economy,
+    ncol = 2, nrow = 2,
+    top = "H3: Effect of Green Parties Moderated by Economic Conditions"
   )
-  
-  # Save the combined plot
-  ggsave("Robusthedstests/H3 tests - Appendiks/h3_gdp_polynomial_comparison.png", economy_poly_comparison, width = 12, height = 6, dpi = 300)
+  ggsave("Robusthedstests/H3 tests - Appendiks/h3_all_polynomial_comparison_economy.png", h3_all_poly_comparison_economy, width = 12, height = 10, dpi = 300)
 }
 
 # 3.7 Placebo Threshold Tests for H3 (GDP Growth) ----------------
@@ -4072,14 +4131,14 @@ ggsave("Robusthedstests/H3 tests - Appendiks/h3_bad_economy_placebo.png", plot =
 
 # 3.9 Density Tests for H3 (GDP Growth) ----------------
 # Add McCrary density test for high GDP growth
-h3_high_gdp_density_test <- rddensity(h3_high_gdp$centered_lagged_pervote_samlet, c = 0)
+h3_high_gdp_density_test <- rddensity(h3_high_gdp$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h3_high_gdp_density_summary <- summary(h3_high_gdp_density_test)
 h3_high_gdp_density_plot <- rdplotdensity(h3_high_gdp_density_test, 
                                         h3_high_gdp$centered_lagged_pervote_samlet,
                                         title = "H3: Density Test (High GDP Growth)")
 
 # Add McCrary density test for low GDP growth
-h3_low_gdp_density_test <- rddensity(h3_low_gdp$centered_lagged_pervote_samlet, c = 0)
+h3_low_gdp_density_test <- rddensity(h3_low_gdp$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h3_low_gdp_density_summary <- summary(h3_low_gdp_density_test)
 h3_low_gdp_density_plot <- rdplotdensity(h3_low_gdp_density_test, 
                                        h3_low_gdp$centered_lagged_pervote_samlet,
@@ -4094,48 +4153,16 @@ summary(h3_low_gdp_density_test)
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_density.png", plot = h3_high_gdp_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_density.png", plot = h3_low_gdp_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 
-h3_high_gdp_density_test_alternativ <- DCdensity(h3_high_gdp$centered_lagged_pervote_samlet, c = 0, verbose = TRUE)
-h3_low_gdp_density_test_alternativ <- DCdensity(h3_low_gdp$centered_lagged_pervote_samlet, c = 0, verbose = TRUE)
-
-# For høj BNP data
-alternativ_density_plot_high_gdp <- ggplot(h3_high_gdp, aes(x = centered_lagged_pervote_samlet)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 30, alpha = 0.5) +
-  geom_density() +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(
-    title = "Density Test for Running Variable (High GDP)",
-    subtitle = paste("McCrary test p-value:", round(h3_high_gdp_density_test_alternativ, 4)),
-    x = "Green Party Vote Share (Centered)",
-    y = "Density"
-  ) +
-  theme_minimal()
-
-# For lav BNP data
-alternativ_density_plot_low_gdp <- ggplot(h3_low_gdp, aes(x = centered_lagged_pervote_samlet)) +
-  geom_histogram(aes(y = after_stat(density)), bins = 30, alpha = 0.5) +
-  geom_density() +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(
-    title = "Density Test for Running Variable (Low GDP)",
-    subtitle = paste("McCrary test p-value:", round(h3_low_gdp_density_test_alternativ, 4)),
-    x = "Green Party Vote Share (Centered)",
-    y = "Density"
-  ) +
-  theme_minimal()
-
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_density_alternativ.png", plot = alternativ_density_plot_high_gdp$Estplot, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_density_alternativ.png", plot = alternativ_density_plot_low_gdp$Estplot, width = 10, height = 6, dpi = 300)
-
 # 3.10 Density Tests for H3 (Economic Index) ----------------
 # Add McCrary density test for good economy
-h3_good_economy_density_test <- rddensity(clean_data_good_economy$centered_lagged_pervote_samlet, c = 0)
+h3_good_economy_density_test <- rddensity(clean_data_good_economy$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h3_good_economy_density_summary <- summary(h3_good_economy_density_test)
 h3_good_economy_density_plot <- rdplotdensity(h3_good_economy_density_test, 
                                             clean_data_good_economy$centered_lagged_pervote_samlet,
                                             title = "H3: Density Test (Good Economic Conditions)")
 
 # Add McCrary density test for bad economy
-h3_bad_economy_density_test <- rddensity(clean_data_bad_economy$centered_lagged_pervote_samlet, c = 0)
+h3_bad_economy_density_test <- rddensity(clean_data_bad_economy$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h3_bad_economy_density_summary <- summary(h3_bad_economy_density_test)
 h3_bad_economy_density_plot <- rdplotdensity(h3_bad_economy_density_test, 
                                            clean_data_bad_economy$centered_lagged_pervote_samlet,
@@ -4147,280 +4174,6 @@ summary(h3_bad_economy_density_test)
 # Save density plots
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_good_economy_density.png", plot = h3_good_economy_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H3 tests - Appendiks/h3_bad_economy_density.png", plot = h3_bad_economy_density_plot$Estplot, width = 10, height = 6, dpi = 300)
-
-# 3.11 Covariate Balance Tests for H3 (GDP Growth) ----------------
-# Define covariates to check
-h3_balance_covariates <- c("rile_lowe", "GDP_per_capita", "Unemployment")
-
-# High GDP Growth
-h3_high_gdp_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h3_balance_covariates) {
-  if (cov %in% names(h3_high_gdp)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = h3_high_gdp[[cov]],
-        x = h3_high_gdp$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h3_high_gdp_balance_results <- rbind(h3_high_gdp_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in high GDP growth group:", e$message, "\n")
-    })
-  }
-}
-
-# Low GDP Growth
-h3_low_gdp_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h3_balance_covariates) {
-  if (cov %in% names(h3_low_gdp)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = h3_low_gdp[[cov]],
-        x = h3_low_gdp$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h3_low_gdp_balance_results <- rbind(h3_low_gdp_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in low GDP growth group:", e$message, "\n")
-    })
-  }
-}
-
-# Print and save balance test results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h3_high_gdp_balance_results, caption = "H3: Covariate Balance Tests (High GDP Growth)")
-  knitr::kable(h3_low_gdp_balance_results, caption = "H3: Covariate Balance Tests (Low GDP Growth)")
-}
-
-write.csv(h3_high_gdp_balance_results, "Robusthedstests/H3 tests - Appendiks/h3_high_gdp_balance_tests.csv", row.names = FALSE)
-write.csv(h3_low_gdp_balance_results, "Robusthedstests/H3 tests - Appendiks/h3_low_gdp_balance_tests.csv", row.names = FALSE)
-
-# 3.12 Covariate Balance Tests for H3 (Economic Index) ----------------
-# Good Economy
-h3_good_economy_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h3_balance_covariates) {
-  if (cov %in% names(clean_data_good_economy)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = clean_data_good_economy[[cov]],
-        x = clean_data_good_economy$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h3_good_economy_balance_results <- rbind(h3_good_economy_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in good economy group:", e$message, "\n")
-    })
-  }
-}
-
-# Bad Economy
-h3_bad_economy_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h3_balance_covariates) {
-  if (cov %in% names(clean_data_bad_economy)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = clean_data_bad_economy[[cov]],
-        x = clean_data_bad_economy$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h3_bad_economy_balance_results <- rbind(h3_bad_economy_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in bad economy group:", e$message, "\n")
-    })
-  }
-}
-
-# Print and save balance test results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h3_good_economy_balance_results, caption = "H3: Covariate Balance Tests (Good Economy)")
-  knitr::kable(h3_bad_economy_balance_results, caption = "H3: Covariate Balance Tests (Bad Economy)")
-}
-
-write.csv(h3_good_economy_balance_results, "Robusthedstests/H3 tests - Appendiks/h3_good_economy_balance_tests.csv", row.names = FALSE)
-write.csv(h3_bad_economy_balance_results, "Robusthedstests/H3 tests - Appendiks/h3_bad_economy_balance_tests.csv", row.names = FALSE)
-
-
-
-# 3.23 Visual RDD Plots for H3 (GDP Growth) ----------------
-# Create clear RDD plots for main paper
-h3_high_gdp_rdd_plot <- plot_rdd(
-  data = h3_high_gdp,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect Under High GDP Growth"
-)
-
-h3_low_gdp_rdd_plot <- plot_rdd(
-  data = h3_low_gdp,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect Under Low GDP Growth"
-)
-
-# Save RDD plots
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_rdd_plot.png", plot = h3_high_gdp_rdd_plot, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_rdd_plot.png", plot = h3_low_gdp_rdd_plot, width = 10, height = 6, dpi = 300)
-
-# Create zoomed-in versions for better threshold visualization
-h3_high_gdp_rdd_zoom <- jump_plot_cutoff(
-  data = h3_high_gdp,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-h3_low_gdp_rdd_zoom <- jump_plot_cutoff(
-  data = h3_low_gdp,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-# Save zoomed RDD plots
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_high_gdp_rdd_zoom.png", plot = h3_high_gdp_rdd_zoom, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_low_gdp_rdd_zoom.png", plot = h3_low_gdp_rdd_zoom, width = 10, height = 6, dpi = 300)
-
-# 3.24 Visual RDD Plots for H3 (Economic Index) ----------------
-h3_good_economy_rdd_plot <- plot_rdd(
-  data = clean_data_good_economy,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect Under Good Economic Conditions"
-)
-
-h3_bad_economy_rdd_plot <- plot_rdd(
-  data = clean_data_bad_economy,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect Under Poor Economic Conditions"
-)
-
-# Save RDD plots
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_good_economy_rdd_plot.png", plot = h3_good_economy_rdd_plot, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_bad_economy_rdd_plot.png", plot = h3_bad_economy_rdd_plot, width = 10, height = 6, dpi = 300)
-
-# Create zoomed-in versions for better threshold visualization
-h3_good_economy_rdd_zoom <- jump_plot_cutoff(
-  data = clean_data_good_economy,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-h3_bad_economy_rdd_zoom <- jump_plot_cutoff(
-  data = clean_data_bad_economy,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-# Save zoomed RDD plots
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_good_economy_rdd_zoom.png", plot = h3_good_economy_rdd_zoom, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H3 tests - Appendiks/h3_bad_economy_rdd_zoom.png", plot = h3_bad_economy_rdd_zoom, width = 10, height = 6, dpi = 300)
-
-# 3.25 Combined Visual Comparison for H3 ----------------
-# Combine GDP growth plots in a single figure
-if (requireNamespace("gridExtra", quietly = TRUE)) {
-  h3_gdp_combined <- gridExtra::grid.arrange(
-    h3_high_gdp_rdd_plot, h3_low_gdp_rdd_plot,
-    ncol = 2,
-    top = "H3: Effect of Green Party Entry by GDP Growth"
-  )
-  
-  h3_economy_combined <- gridExtra::grid.arrange(
-    h3_good_economy_rdd_plot, h3_bad_economy_rdd_plot,
-    ncol = 2,
-    top = "H3: Effect of Green Party Entry by Economic Conditions"
-  )
-  
-  # Save combined plots
-  ggsave("Robusthedstests/H3 tests - Appendiks/h3_gdp_combined.png", plot = h3_gdp_combined, width = 12, height = 6, dpi = 300)
-  ggsave("Robusthedstests/H3 tests - Appendiks/h3_economy_combined.png", plot = h3_economy_combined, width = 12, height = 6, dpi = 300)
-}
 
 # 3.26 Outcome Placebo Tests for H3 (GDP Growth) ----------------
 # Using variables that shouldn't be affected by treatment
@@ -4616,8 +4369,8 @@ dir.create("Robusthedstests", showWarnings = FALSE)
 # Opret derefter undermappen H4 tests - Appendiks
 dir.create("Robusthedstests/H4 tests - Appendiks", showWarnings = FALSE)
 
-# 4.2 Coefficient Stability Plots for H4 ----------------
-left_party_stability_plot <- create_coefficient_stability_plot(
+# 2.2 Coefficient Stability Plots for H4 ----------------
+left_party_stability_plot  <- create_coefficient_stability_plot(
   data = clean_data_left_party,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -4627,7 +4380,7 @@ left_party_stability_plot <- create_coefficient_stability_plot(
   title = "H4: Effect on Left-wing Parties"
 )
 
-right_party_stability_plot <- create_coefficient_stability_plot(
+right_party_stability_plot  <- create_coefficient_stability_plot(
   data = clean_data_right_party,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -4637,33 +4390,12 @@ right_party_stability_plot <- create_coefficient_stability_plot(
   title = "H4: Effect on Right-wing Parties"
 )
 
-# Save plots
-pdf("h4_left_party_stability.pdf", width = 10, height = 6)
-print(left_party_stability_plot$plot)
-dev.off()
+ggsave("Robusthedstests/H4 tests - Appendiks/h4_left_party_stability.png", plot = h4_left_placebo_plot, width = 10, height = 6, dpi = 300)
 
-pdf("h4_right_party_stability.pdf", width = 10, height = 6)
-print(right_party_stability_plot$plot)
-dev.off()
+ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_party_stability.png", plot = h4_right_placebo_plot, width = 10, height = 6, dpi = 300)
 
-# 4.3 Direct Comparison of Party Ideology Effects ----------------
-h4_ideology_comparison_plot <- compare_coefficient_stability(
-  data_list = list(clean_data_left_party, clean_data_right_party),
-  labels = c("Left-wing Parties", "Right-wing Parties"),
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  bw_list = seq(1, 3, by = 0.5),
-  polynomial = 1,
-  covariates = c("country", "edate"),
-  title = "H4: Effect of Green Parties Moderated by Party Ideology"
-)
-
-# Save comparison plot
-ggsave("Robusthedstests/H4 tests - Appendiks/h4_ideology_comparison.png", plot = h4_ideology_comparison_plot, width = 10, height = 6, dpi = 300)
-
-# 4.4 Multi-polynomial Comparisons ----------------
-# Ideology with different polynomial orders
-h4_comparison_plot_p1 <- compare_coefficient_stability(
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p1_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
   outcome_var = "miljø_afhængig",
@@ -4674,7 +4406,8 @@ h4_comparison_plot_p1 <- compare_coefficient_stability(
   title = "H4: Effect of Green Parties (Polynomial Order 1)"
 )
 
-h4_comparison_plot_p2 <- compare_coefficient_stability(
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p2_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
   outcome_var = "miljø_afhængig",
@@ -4685,16 +4418,38 @@ h4_comparison_plot_p2 <- compare_coefficient_stability(
   title = "H4: Effect of Green Parties (Polynomial Order 2)"
 )
 
-# Combine plots in grid if gridExtra is available
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p3_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p4_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 4)"
+)
+
 if (requireNamespace("gridExtra", quietly = TRUE)) {
-  ideology_poly_comparison <- gridExtra::grid.arrange(
-    h4_comparison_plot_p1, h4_comparison_plot_p2,
-    ncol = 2,
+  h4_all_poly_comparison_ideology <- gridExtra::grid.arrange(
+    h4_comparison_plot_p1_ideology, h4_comparison_plot_p2_ideology,
+    h4_comparison_plot_p3_ideology, h4_comparison_plot_p4_ideology,
+    ncol = 2, nrow = 2,
     top = "H4: Effect of Green Parties Moderated by Party Ideology"
   )
-  
-  # Save the combined plot
-  ggsave("Robusthedstests/H4 tests - Appendiks/h4_ideology_polynomial_comparison.png", ideology_poly_comparison, width = 12, height = 6, dpi = 300)
+  ggsave("Robusthedstests/H4 tests - Appendiks/h4_all_polynomial_comparison_ideology.png", h4_all_poly_comparison_ideology, width = 12, height = 10, dpi = 300)
 }
 
 # 4.5 Placebo Threshold Tests for H4 (Party Ideology) ----------------
@@ -4739,14 +4494,14 @@ ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_placebo.png", plot = h4_ri
 
 # 4.6 Density Tests for H4 (Party Ideology) ----------------
 # Add McCrary density test for left-wing parties
-h4_left_density_test <- rddensity(clean_data_left_party$centered_lagged_pervote_samlet, c = 0)
+h4_left_density_test <- rddensity(clean_data_left_party$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h4_left_density_summary <- summary(h4_left_density_test)
 h4_left_density_plot <- rdplotdensity(h4_left_density_test, 
                                     clean_data_left_party$centered_lagged_pervote_samlet,
                                     title = "H4: Density Test (Left-wing Parties)")
 
 # Add McCrary density test for right-wing parties
-h4_right_density_test <- rddensity(clean_data_right_party$centered_lagged_pervote_samlet, c = 0)
+h4_right_density_test <- rddensity(clean_data_right_party$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h4_right_density_summary <- summary(h4_right_density_test)
 h4_right_density_plot <- rdplotdensity(h4_right_density_test, 
                                      clean_data_right_party$centered_lagged_pervote_samlet,
@@ -4758,147 +4513,6 @@ summary(h4_right_density_test)
 # Save density plots
 ggsave("Robusthedstests/H4 tests - Appendiks/h4_left_density.png", plot = h4_left_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_density.png", plot = h4_right_density_plot$Estplot, width = 10, height = 6, dpi = 300)
-
-# 4.7 Covariate Balance Tests for H4 (Party Ideology) ----------------
-# Define covariates to check
-h4_balance_covariates <- c("rile_lowe", "GDP_per_capita", "Unemployment", "avg_pervote_main")
-
-# Left-wing Parties
-h4_left_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h4_balance_covariates) {
-  if (cov %in% names(clean_data_left_party)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = clean_data_left_party[[cov]],
-        x = clean_data_left_party$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h4_left_balance_results <- rbind(h4_left_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in left-wing parties:", e$message, "\n")
-    })
-  }
-}
-
-# Right-wing Parties
-h4_right_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h4_balance_covariates) {
-  if (cov %in% names(clean_data_right_party)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = clean_data_right_party[[cov]],
-        x = clean_data_right_party$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h4_right_balance_results <- rbind(h4_right_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in right-wing parties:", e$message, "\n")
-    })
-  }
-}
-
-# Print and save balance test results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h4_left_balance_results, caption = "H4: Covariate Balance Tests (Left-wing Parties)")
-  knitr::kable(h4_right_balance_results, caption = "H4: Covariate Balance Tests (Right-wing Parties)")
-}
-
-write.csv(h4_left_balance_results, "Robusthedstests/H4 tests - Appendiks/h4_left_balance_tests.csv", row.names = FALSE)
-write.csv(h4_right_balance_results, "Robusthedstests/H4 tests - Appendiks/h4_right_balance_tests.csv", row.names = FALSE)
-
-# 4.13 Visual RDD Plots for H4 (Party Ideology) ----------------
-# Create clear RDD plots for main paper
-h4_left_rdd_plot <- plot_rdd(
-  data = clean_data_left_party,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect on Left-wing Parties"
-)
-
-h4_right_rdd_plot <- plot_rdd(
-  data = clean_data_right_party,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect on Right-wing Parties"
-)
-
-# Save RDD plots
-ggsave("Robusthedstests/H4 tests - Appendiks/h4_left_rdd_plot.png", plot = h4_left_rdd_plot, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_rdd_plot.png", plot = h4_right_rdd_plot, width = 10, height = 6, dpi = 300)
-
-# Create zoomed-in versions for better threshold visualization
-h4_left_rdd_zoom <- jump_plot_cutoff(
-  data = clean_data_left_party,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-h4_right_rdd_zoom <- jump_plot_cutoff(
-  data = clean_data_right_party,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-# Save zoomed RDD plots
-ggsave("Robusthedstests/H4 tests - Appendiks/h4_left_rdd_zoom.png", plot = h4_left_rdd_zoom, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H4 tests - Appendiks/h4_right_rdd_zoom.png", plot = h4_right_rdd_zoom, width = 10, height = 6, dpi = 300)
-
-# 4.14 Combined Visual Comparison for H4 ----------------
-# Combine ideology plots in a single figure
-if (requireNamespace("gridExtra", quietly = TRUE)) {
-  h4_ideology_combined <- gridExtra::grid.arrange(
-    h4_left_rdd_plot, h4_right_rdd_plot,
-    ncol = 2,
-    top = "H4: Effect of Green Party Entry by Party Ideology"
-  )
-  
-  # Save combined plots
-  ggsave("Robusthedstests/H4 tests - Appendiks/h4_ideology_combined.png", plot = h4_ideology_combined, width = 12, height = 6, dpi = 300)
-}
 
 # 4.15 Outcome Placebo Tests for H4 (Party Ideology) ----------------
 # Using variables that shouldn't be affected by treatment
@@ -5176,8 +4790,8 @@ dir.create("Robusthedstests", showWarnings = FALSE)
 # Opret derefter undermappen H4 tests - Appendiks
 dir.create("Robusthedstests/H5 tests - Appendiks", showWarnings = FALSE)
 
-# 5.1 Coefficient Stability Plots for H5 ----------------
-large_party_stability_plot <- create_coefficient_stability_plot(
+# 2.2 Coefficient Stability Plots for H3 ----------------
+large_party_stability_plot  <- create_coefficient_stability_plot(
   data = large_parties,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -5187,7 +4801,7 @@ large_party_stability_plot <- create_coefficient_stability_plot(
   title = "H5: Effect on Large Parties"
 )
 
-small_party_stability_plot <- create_coefficient_stability_plot(
+small_party_stability_plot  <- create_coefficient_stability_plot(
   data = small_parties,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -5197,33 +4811,12 @@ small_party_stability_plot <- create_coefficient_stability_plot(
   title = "H5: Effect on Small Parties"
 )
 
-# Save plots
-pdf("Robusthedstests/H5 tests - Appendiks/h5_large_party_stability_plot.pdf", width = 10, height = 6)
-print(large_party_stability_plot$plot)
-dev.off()
+ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_party_stability_plot.png", plot = h5_large_party_stability_plot, width = 10, height = 6, dpi = 300)
 
-pdf("Robusthedstests/H5 tests - Appendiks/h5_small_party_stability.pdf", width = 10, height = 6)
-print(small_party_stability_plot$plot)
-dev.off()
+ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_party_stability.png", plot = h5_small_party_stability, width = 10, height = 6, dpi = 300)
 
-# 5.2 Prepare Data for H5 ----------------
-h5_size_comparison_plot <- compare_coefficient_stability(
-  data_list = list(large_parties, small_parties),
-  labels = c("Large Parties", "Small Parties"),
-  outcome_var = "miljø_afhængig",
-  running_var = "centered_lagged_pervote_samlet",
-  bw_list = seq(1, 3, by = 0.5),
-  polynomial = 1,
-  covariates = c("country", "edate"),
-  title = "H4: Effect of Green Parties Moderated by Party Size"
-)
-
-# Save comparison plot
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_size_comparison.png", plot = h4_ideology_comparison_plot, width = 10, height = 6, dpi = 300)
-
-# 5.4 Multi-polynomial Comparisons ----------------
-# Ideology with different polynomial orders
-h5_comparison_plot_p1 <- compare_coefficient_stability(
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p1_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
   outcome_var = "miljø_afhængig",
@@ -5234,7 +4827,8 @@ h5_comparison_plot_p1 <- compare_coefficient_stability(
   title = "H5: Effect of Green Parties (Polynomial Order 1)"
 )
 
-h5_comparison_plot_p2 <- compare_coefficient_stability(
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p2_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
   outcome_var = "miljø_afhængig",
@@ -5245,16 +4839,38 @@ h5_comparison_plot_p2 <- compare_coefficient_stability(
   title = "H5: Effect of Green Parties (Polynomial Order 2)"
 )
 
-# Combine plots in grid if gridExtra is available
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p3_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p4_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 4)"
+)
+
 if (requireNamespace("gridExtra", quietly = TRUE)) {
-  size_poly_comparison <- gridExtra::grid.arrange(
-    h5_comparison_plot_p1, h5_comparison_plot_p2,
-    ncol = 2,
+  h5_all_poly_comparison_size <- gridExtra::grid.arrange(
+    h5_comparison_plot_p1_size, h5_comparison_plot_p2_size,
+    h5_comparison_plot_p3_size, h5_comparison_plot_p4_size,
+    ncol = 2, nrow = 2,
     top = "H5: Effect of Green Parties Moderated by Party Size"
   )
-  
-  # Save the combined plot
-  ggsave("Robusthedstests/H5 tests - Appendiks/h5_size_polynomial_comparison.png", ideology_poly_comparison, width = 12, height = 6, dpi = 300)
+  ggsave("Robusthedstests/H5 tests - Appendiks/h5_all_polynomial_comparison_size.png", h5_all_poly_comparison_size, width = 12, height = 10, dpi = 300)
 }
 
 # 5.5 Placebo Threshold Tests for H5 (Party Size) ----------------
@@ -5299,14 +4915,14 @@ ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_placebo_plot.png", plot = 
 
 # 5.6 Density Tests for H4 (Party Size) ----------------
 # Add McCrary density test for large parties
-h5_large_density_test <- rddensity(large_parties$centered_lagged_pervote_samlet, c = 0)
+h5_large_density_test <- rddensity(large_parties$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h5_large_density_summary <- summary(h5_large_density_test)
 h5_large_density_plot <- rdplotdensity(h5_large_density_test, 
                                     large_parties$centered_lagged_pervote_samlet,
                                     title = "H5: Density Test (Large Parties)")
 
 # Add McCrary density test for right-wing parties
-h5_small_density_test <- rddensity(small_parties$centered_lagged_pervote_samlet, c = 0)
+h5_small_density_test <- rddensity(small_parties$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
 h5_small_density_summary <- summary(h5_small_density_test)
 h5_small_density_plot <- rdplotdensity(h5_small_density_test, 
                                      small_parties$centered_lagged_pervote_samlet,
@@ -5318,147 +4934,6 @@ summary(h5_small_density_test)
 # Save density plots
 ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_density.png", plot = h5_large_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_density.png", plot = h5_small_density_plot$Estplot, width = 10, height = 6, dpi = 300)
-
-# 5.7 Covariate Balance Tests for H5 (Party Size) ----------------
-# Define covariates to check
-h5_balance_covariates <- c("rile_lowe", "avg_pervote_main")
-
-# Left-wing Parties
-h5_large_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h5_balance_covariates) {
-  if (cov %in% names(large_parties)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = large_parties[[cov]],
-        x = large_parties$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h4_left_balance_results <- rbind(h5_large_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in large parties:", e$message, "\n")
-    })
-  }
-}
-
-# Right-wing Parties
-h5_small_balance_results <- data.frame(
-  Covariate = character(),
-  RDD_Estimate = numeric(),
-  Std_Error = numeric(),
-  P_value = numeric()
-)
-
-for (cov in h5_balance_covariates) {
-  if (cov %in% names(small_parties)) {
-    tryCatch({
-      balance_check <- rdrobust(
-        y = small_parties[[cov]],
-        x = small_parties$centered_lagged_pervote_samlet,
-        c = 0,
-        p = 1,
-        kernel = "triangular",
-        bwselect = "mserd"
-      )
-      
-      h4_right_balance_results <- rbind(h5_small_balance_results, data.frame(
-        Covariate = cov,
-        RDD_Estimate = balance_check$Estimate[1],
-        Std_Error = balance_check$se[1],
-        P_value = balance_check$pv[1]
-      ))
-    }, error = function(e) {
-      cat("Error checking balance for", cov, "in small parties:", e$message, "\n")
-    })
-  }
-}
-
-# Print and save balance test results
-if (requireNamespace("knitr", quietly = TRUE)) {
-  knitr::kable(h5_large_balance_results, caption = "H5: Covariate Balance Tests (Large Parties)")
-  knitr::kable(h5_small_balance_results, caption = "H5: Covariate Balance Tests (Small Parties)")
-}
-
-write.csv(h5_large_balance_results, "Robusthedstests/H5 tests - Appendiks/h5_large_balance_results.csv", row.names = FALSE)
-write.csv(h5_small_balance_results, "Robusthedstests/H5 tests - Appendiks/h5_small_balance_results.csv", row.names = FALSE)
-
-# 5.8 Visual RDD Plots for H5 (Party Size) ----------------
-# Create clear RDD plots for main paper
-h5_large_rdd_plot <- plot_rdd(
-  data = large_parties,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect on Large Parties"
-)
-
-h5_small_rdd_plot <- plot_rdd(
-  data = small_parties,
-  x_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  x_limit = 10,
-  x_label = "Green Party Vote Share (centered at threshold)",
-  y_label = "Climate Position",
-  title = "Effect on Small Parties"
-)
-
-# Save RDD plots
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_rdd_plot.png", plot = h5_large_rdd_plot, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_rdd_plot.png", plot = h5_small_rdd_plot, width = 10, height = 6, dpi = 300)
-
-# Create zoomed-in versions for better threshold visualization
-h5_large_rdd_zoom <- jump_plot_cutoff(
-  data = large_parties,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-h5_small_rdd_zoom <- jump_plot_cutoff(
-  data = small_parties,
-  force_var = "centered_lagged_pervote_samlet",
-  y_var = "miljø_afhængig",
-  group_var = "factor_lagged_i_parlament",
-  polynomial = 1,
-  window = 3
-)
-
-# Save zoomed RDD plots
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_large_rdd_zoom.png", plot = h5_large_rdd_zoom, width = 10, height = 6, dpi = 300)
-ggsave("Robusthedstests/H5 tests - Appendiks/h5_small_rdd_zoom.png", plot = h5_small_rdd_zoom, width = 10, height = 6, dpi = 300)
-
-# 5.9 Combined Visual Comparison for H5 ----------------
-# Combine size plots in a single figure
-if (requireNamespace("gridExtra", quietly = TRUE)) {
-  h5_size_combined <- gridExtra::grid.arrange(
-    h5_large_rdd_plot, h5_small_rdd_plot,
-    ncol = 2,
-    top = "H5: Effect of Green Party Entry by Party Size"
-  )
-  
-  # Save combined plots
-  ggsave("Robusthedstests/H5 tests - Appendiks/h5_size_combined.png", plot = h5_size_combined, width = 12, height = 6, dpi = 300)
-}
 
 # 5.10 Outcome Placebo Tests for H5 (Party Size) ----------------
 # Using variables that shouldn't be affected by treatment
@@ -5673,31 +5148,542 @@ if (nrow(h5_comparison_data) > 0) {
   cat("Ingen resultater at vise eller plotte for H5 sammenligning\n")
 }
 
-# ============================================================================
-# 6. SUMMARY OF RESULTS
-# ============================================================================
-
-# Create tables summarizing placebo p-values, permutation p-values, etc.
-#placebo_summary <- data.frame(
-#  Model = c(
-#    "H1: All parties",
-#    "H2: No radical right parties",
-#    "H2: With radical right parties",
-#    # Continue with all models
-#  ),
-#  Placebo_p_value = c(
-#    h1_placebo_threshold$empirical_p_value,
-#    h2_no_rrp_placebo$empirical_p_value,
-#    h2_with_rrp_placebo$empirical_p_value,
-#    # Continue with all values
-#  )
-#)
-#print(placebo_summary)
-#write.csv(placebo_summary, "placebo_summary.csv", row.names = FALSE)
-
-# Similar summaries for permutation tests, density tests, etc.
-
 ```
 
 
+```{r Fuld Deskriptiv Statistik}
+# Opret mappe til deskriptiv statistik hvis den ikke findes
+dir.create("Deskriptiv Statistik", showWarnings = FALSE)
+
+# 1. Basal deskriptiv statistik for nøglevariable ----------------
+
+stats_tabel <- data.frame(
+  Variabel = c(
+    "Klimaposition (miljø_afhængig)",
+    "Grønne partiers stemmeandel (centered_lagged_pervote_samlet)",
+    "Grønne partier i parlament (lagged_i_parlament)",
+    "Højreradikale partier i parlament (rrp_i_p_lag1)",
+    "Venstreorienteret parti (left_party_lag1)",
+    "Stort parti (large_party_lag1)"
+  ),
+  Gennemsnit = c(
+    mean(final_dataset$miljø_afhængig, na.rm = TRUE),
+    mean(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    mean(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    mean(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    mean(final_dataset$left_party_lag1, na.rm = TRUE),
+    mean(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Median = c(
+    median(final_dataset$miljø_afhængig, na.rm = TRUE),
+    median(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    median(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    median(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    median(final_dataset$left_party_lag1, na.rm = TRUE),
+    median(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Std_afvigelse = c(
+    sd(final_dataset$miljø_afhængig, na.rm = TRUE),
+    sd(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    sd(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    sd(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    sd(final_dataset$left_party_lag1, na.rm = TRUE),
+    sd(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Minimum = c(
+    min(final_dataset$miljø_afhængig, na.rm = TRUE),
+    min(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    min(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    min(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    min(final_dataset$left_party_lag1, na.rm = TRUE),
+    min(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Maksimum = c(
+    max(final_dataset$miljø_afhængig, na.rm = TRUE),
+    max(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    max(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    max(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    max(final_dataset$left_party_lag1, na.rm = TRUE),
+    max(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  N = c(
+    sum(!is.na(final_dataset$miljø_afhængig)),
+    sum(!is.na(final_dataset$centered_lagged_pervote_samlet)),
+    sum(!is.na(final_dataset$lagged_i_parlament)),
+    sum(!is.na(final_dataset$rrp_i_p_lag1)),
+    sum(!is.na(final_dataset$left_party_lag1)),
+    sum(!is.na(final_dataset$large_party_lag1))
+  )
+)
+
+# Formatter tallene pænt
+stats_tabel$Gennemsnit <- round(stats_tabel$Gennemsnit, 3)
+stats_tabel$Median <- round(stats_tabel$Median, 3)
+stats_tabel$Std_afvigelse <- round(stats_tabel$Std_afvigelse, 3)
+stats_tabel$Minimum <- round(stats_tabel$Minimum, 3)
+stats_tabel$Maksimum <- round(stats_tabel$Maksimum, 3)
+
+tabel1 <- kable(stats_tabel, 
+               caption = "Tabel A1: Deskriptiv statistik for nøglevariable i datasættet",
+               format = "markdown")
+
+# Gem som markdown-fil
+writeLines(tabel1, "Deskriptiv Statistik/tabel1_deskriptiv_statistik.md")
+
+# Gem også som CSV for backup
+write.csv(stats_tabel, "Deskriptiv Statistik/tabel1_deskriptiv_statistik.csv", row.names = FALSE)
+
+# 2. Lande i datasættet ----------------
+
+land_stats <- final_dataset %>%
+  group_by(countryname) %>%
+  summarise(
+    Antal_obs = n(),
+    Første_år = min(Year, na.rm = TRUE),
+    Sidste_år = max(Year, na.rm = TRUE),
+    Antal_partier = n_distinct(party),
+    Grønne_i_parlament = sum(lagged_i_parlament, na.rm = TRUE),
+    Højreradikale_i_parlament = sum(rrp_i_p_lag1, na.rm = TRUE),
+    Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3)
+  ) %>%
+  arrange(desc(Antal_obs))
+
+# Gem som markdown
+tabel2 <- kable(land_stats, 
+               caption = "Tabel A2: Oversigt over lande i datasættet",
+               format = "markdown")
+
+writeLines(tabel2, "Deskriptiv Statistik/tabel2_land_oversigt.md")
+write.csv(land_stats, "Deskriptiv Statistik/tabel2_land_oversigt.csv", row.names = FALSE)
+
+# 3. Partifamilier og klimaposition ----
+if("parfam" %in% names(final_dataset)) {
+  partifamilie_stats <- final_dataset %>%
+    mutate(
+      party_family = case_when(
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
+      )
+    ) %>%
+    group_by(party_family) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    arrange(desc(Gns_klimaposition))
+  
+  # Gem som markdown
+  tabel3 <- kable(partifamilie_stats, 
+                 caption = "Tabel A3: Klimapositioner efter partifamilie",
+                 format = "markdown")
+  
+  writeLines(tabel3, "Deskriptiv Statistik/tabel3_partifamilie_stats.md")
+  write.csv(partifamilie_stats, "Deskriptiv Statistik/tabel3_partifamilie_stats.csv", row.names = FALSE)
+}
+
+# 4. Missing data analyse -----
+key_variables <- c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                  "lagged_i_parlament", "rrp_i_p_lag1", "left_party_lag1", 
+                  "large_party_lag1", "good_economy_lag1", "GDP_per_capita_lag1",
+                  "Unemployment", "Inflation-consumer prices")
+
+# Sørg for at alle variable findes i datasættet
+key_variables <- key_variables[key_variables %in% names(final_dataset)]
+
+# Antal og procent af missing values
+missing_stats <- data.frame(
+  Variabel = key_variables,
+  Antal_missing = sapply(final_dataset[, key_variables], function(x) sum(is.na(x))),
+  Procent_missing = round(sapply(final_dataset[, key_variables], function(x) mean(is.na(x)) * 100), 1)
+)
+
+missing_stats <- missing_stats[order(-missing_stats$Procent_missing), ]
+
+# Gem som markdown
+tabel4 <- kable(missing_stats, 
+               caption = "Tabel A4: Manglende værdier i nøglevariable",
+               format = "markdown")
+
+writeLines(tabel4, "Deskriptiv Statistik/tabel4_missing_data.md")
+write.csv(missing_stats, "Deskriptiv Statistik/tabel4_missing_data.csv", row.names = FALSE)
+
+
+# 5. Grønne partiers succes over tid --------
+# Tjek først at de nødvendige variable findes
+if(all(c("Year", "pervote_samlet", "i_parlament") %in% names(final_dataset))) {
+  grønne_success_tid <- final_dataset %>%
+    group_by(Year) %>%
+    summarise(
+      grønne_partier = sum(!is.na(pervote_samlet)),
+      grønne_i_parlament = sum(i_parlament, na.rm = TRUE),
+      success_rate = grønne_i_parlament / grønne_partier
+    ) %>%
+    filter(!is.na(success_rate))
+  
+  tabel5 <- kable(grønne_success_tid, 
+                 caption = "Tabel A5: Grønne partiers succesrate over tid",
+                 col.names = c("År", "Antal grønne partier", "Antal i parlament", "Succesrate"),
+                 digits = 3,
+                 format = "markdown")
+  
+  # Gem tabellen
+  writeLines(tabel5, "Deskriptiv Statistik/tabel5_gronne_partiers_succes.md")
+  write.csv(grønne_success_tid, "Deskriptiv Statistik/tabel5_gronne_partiers_succes.csv", row.names = FALSE)
+}
+
+
+# 6. Fordeling af klimaposition -------------
+# Opret histogram over miljø_afhængig
+p1 <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "darkblue", alpha = 0.7) +
+  geom_density(color = "red", size = 1) +
+  labs(
+    title = "Fordeling af klimaposition (miljø_afhængig)",
+    x = "Klimaposition",
+    y = "Antal"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Deskriptiv Statistik/figur1_fordeling_klimaposition.png", p1, width = 10, height = 6, dpi = 300)
+
+
+# 7. Klimaposition pr. land -----------
+p2 <- ggplot(final_dataset, aes(x = reorder(countryname, miljø_afhængig, FUN = median, na.rm = TRUE), 
+                              y = miljø_afhængig)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Klimaposition efter land",
+    x = "Land",
+    y = "Klimaposition"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Deskriptiv Statistik/figur2_klimaposition_efter_land.png", p2, width = 10, height = 8, dpi = 300)
+
+
+# 8. Grønne partiers stemmeandel over tid -----------
+# Beregner gennemsnitlig stemmeandel for grønne partier pr. år
+stemmeandel_tid <- final_dataset %>%
+  group_by(Year) %>%
+  summarise(
+    gns_stemmeandel = mean(lagged_pervote_samlet, na.rm = TRUE),
+    median_stemmeandel = median(lagged_pervote_samlet, na.rm = TRUE)
+  ) %>%
+  filter(!is.na(gns_stemmeandel))
+
+p3 <- ggplot(stemmeandel_tid, aes(x = Year)) +
+  geom_line(aes(y = gns_stemmeandel), size = 1, color = "darkgreen") +
+  geom_line(aes(y = median_stemmeandel), size = 1, color = "green", linetype = "dashed") +
+  labs(
+    title = "Grønne partiers stemmeandel over tid",
+    x = "År",
+    y = "Stemmeandel (%)",
+    caption = "Kilde: Egne beregninger baseret på Manifesto Project Dataset"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Deskriptiv Statistik/figur3_stemmeandel_over_tid.png", p3, width = 10, height = 6, dpi = 300)
+
+# 9. Threshold oversigt -----
+# Lav en ren tabel med thresholds uden party-kolonnen
+threshold_oversigt <- final_dataset %>%
+  # Gruppér efter land og valgdato for at fjerne dubletter på grund af partier
+  group_by(countryname, edate) %>%
+  # Tag kun én threshold-værdi per land/valgdato (da alle bør være identiske)
+  summarise(threshold = first(threshold), .groups = "drop") %>%
+  # Fjern rækker med manglende threshold-værdier
+  filter(!is.na(threshold)) %>%
+  # Sortér efter land og valgdato
+  arrange(countryname, edate)
+
+# Se de første rækker for at bekræfte at tabellen er korrekt
+print(head(threshold_oversigt))
+
+# Gem som CSV-fil
+write.csv(threshold_oversigt, "Deskriptiv Statistik/threshold_by_country_year.csv", row.names = FALSE)
+
+# Lav en pæn tabel med knitr
+tabel6 <- kable(threshold_oversigt, 
+               caption = "Tabel A6: Valggrænser (thresholds) efter land og år",
+               col.names = c("Land", "Valgdato", "Valggrænse (%)"),
+               format = "markdown")
+
+# Gem som markdown-fil
+writeLines(tabel6, "Deskriptiv Statistik/tabel6_threshold_by_country_year.md")
+
+
+# 10. Deskriptiv statistik for hver hypotese -----
+
+# H1: Grønne partier i parlament
+# Forventer at du har et datasæt kaldet h1_analysis_data
+if(exists("h1_analysis_data")) {
+  h1_stats <- h1_analysis_data %>%
+    group_by(lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3),
+      Min_klimaposition = round(min(miljø_afhængig, na.rm = TRUE), 3),
+      Max_klimaposition = round(max(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        lagged_i_parlament == 0 ~ "Ingen grønne partier i parlament",
+        lagged_i_parlament == 1 ~ "Grønne partier i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, 
+           Std_afv_klimaposition, Min_klimaposition, Max_klimaposition)
+  
+  tabel7 <- kable(h1_stats,
+                 caption = "Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament",
+                 format = "markdown")
+  writeLines(tabel7, "Deskriptiv Statistik/tabel7_h1_stats.md")
+  
+
+  
+}
+
+# H2: Højreradikale partier i parlament
+if(exists("h2_analysis_data")) {
+  h2_stats <- h2_analysis_data %>%
+    group_by(rrp_i_p_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        rrp_i_p_lag1 == 0 & lagged_i_parlament == 0 ~ "Ingen højreradikale/grønne i parlament",
+        rrp_i_p_lag1 == 0 & lagged_i_parlament == 1 ~ "Kun grønne i parlament",
+        rrp_i_p_lag1 == 1 & lagged_i_parlament == 0 ~ "Kun højreradikale i parlament",
+        rrp_i_p_lag1 == 1 & lagged_i_parlament == 1 ~ "Både højreradikale og grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel8 <- kable(h2_stats,
+                 caption = "Tabel A8: Deskriptiv statistik for H2 - Højreradikale partier i parlament",
+                 format = "markdown")
+  writeLines(tabel8, "Deskriptiv Statistik/tabel8_h2_stats.md")
+  
+
+}
+
+# H3: Økonomiske forhold
+if(exists("h3_econ_analysis_data")) {
+  h3_stats <- h3_econ_analysis_data %>%
+    group_by(good_economy_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        good_economy_lag1 == 0 & lagged_i_parlament == 0 ~ "Dårlig økonomi, ingen grønne i parlament",
+        good_economy_lag1 == 0 & lagged_i_parlament == 1 ~ "Dårlig økonomi, grønne i parlament",
+        good_economy_lag1 == 1 & lagged_i_parlament == 0 ~ "God økonomi, ingen grønne i parlament",
+        good_economy_lag1 == 1 & lagged_i_parlament == 1 ~ "God økonomi, grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel9 <- kable(h3_stats,
+                 caption = "Tabel A9: Deskriptiv statistik for H3 - Økonomiske forhold",
+                 format = "markdown")
+  writeLines(tabel9, "Deskriptiv Statistik/tabel9_h3_stats.md")
+  
+
+  
+  # Alternativt for GDP vækst hvis det datasæt findes
+  if(exists("h3_gdp_analysis_data")) {
+    h3_gdp_stats <- h3_gdp_analysis_data %>%
+      group_by(high_gdp_growth_lag1, lagged_i_parlament) %>%
+      summarise(
+        Antal_obs = n(),
+        Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+        Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+        Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+      ) %>%
+      mutate(
+        Gruppe = case_when(
+          high_gdp_growth_lag1 == 0 & lagged_i_parlament == 0 ~ "Lav BNP-vækst, ingen grønne i parlament",
+          high_gdp_growth_lag1 == 0 & lagged_i_parlament == 1 ~ "Lav BNP-vækst, grønne i parlament",
+          high_gdp_growth_lag1 == 1 & lagged_i_parlament == 0 ~ "Høj BNP-vækst, ingen grønne i parlament",
+          high_gdp_growth_lag1 == 1 & lagged_i_parlament == 1 ~ "Høj BNP-vækst, grønne i parlament",
+          TRUE ~ "Ukendt"
+        )
+      ) %>%
+      select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+    
+    tabel9b <- kable(h3_gdp_stats,
+                    caption = "Tabel A9b: Deskriptiv statistik for H3 - BNP-vækst",
+                    format = "markdown")
+    writeLines(tabel9b, "Deskriptiv Statistik/tabel9b_h3_gdp_stats.md")
+    
+
+  }
+}
+
+# H4: Venstreorienterede partier
+if(exists("h4_analysis_data")) {
+  h4_stats <- h4_analysis_data %>%
+    group_by(left_party_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        left_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Højreorienteret parti, ingen grønne i parlament",
+        left_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Højreorienteret parti, grønne i parlament",
+        left_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Venstreorienteret parti, ingen grønne i parlament",
+        left_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Venstreorienteret parti, grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel10 <- kable(h4_stats,
+                  caption = "Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier",
+                  format = "markdown")
+  writeLines(tabel10, "Deskriptiv Statistik/tabel10_h4_stats.md")
+  
+
+ 
+}
+
+# H5: Store partier
+if(exists("h5_analysis_data")) {
+  h5_stats <- h5_analysis_data %>%
+    group_by(large_party_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        large_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Lille parti, ingen grønne i parlament",
+        large_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Lille parti, grønne i parlament",
+        large_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Stort parti, ingen grønne i parlament",
+        large_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Stort parti, grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel11 <- kable(h5_stats,
+                  caption = "Tabel A11: Deskriptiv statistik for H5 - Store partier",
+                  format = "markdown")
+  writeLines(tabel11, "Deskriptiv Statistik/tabel11_h5_stats.md")
+
+}
+  
+
+# 11. Samlet tabel -----
+# Lav en samlet dokument med alle tabeller
+tabeller_samlet <- c(
+  "# Deskriptiv statistik\n\n",
+  "## Tabel A1: Deskriptiv statistik for nøglevariable\n\n",
+  tabel1,
+  "\n\n## Tabel A2: Oversigt over lande i datasættet\n\n",
+  tabel2
+)
+
+if(exists("tabel3")) {
+  tabeller_samlet <- c(tabeller_samlet, 
+                     "\n\n## Tabel A3: Klimapositioner efter partifamilie\n\n",
+                     tabel3)
+}
+
+tabeller_samlet <- c(tabeller_samlet,
+                   "\n\n## Tabel A4: Manglende værdier i nøglevariable\n\n",
+                   tabel4)
+
+if(exists("tabel5")) {
+  tabeller_samlet <- c(tabeller_samlet, 
+                     "\n\n## Tabel A5: Grønne partiers succesrate over tid\n\n",
+                     tabel5)
+}
+
+tabeller_samlet <- c(tabeller_samlet,
+                   "\n\n## Tabel A6: Valggrænser (thresholds) efter land og år\n\n",
+                   tabel6)
+
+# Tilføj de nye tabeller hvis de eksisterer
+if(exists("tabel7")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament\n\n",
+                     tabel7)
+}
+
+if(exists("tabel8")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A8: Deskriptiv statistik for H2 - Højreradikale partier i parlament\n\n",
+                     tabel8)
+}
+
+if(exists("tabel9")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A9: Deskriptiv statistik for H3 - Økonomiske forhold\n\n",
+                     tabel9)
+}
+
+if(exists("tabel9b")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A9b: Deskriptiv statistik for H3 - BNP-vækst\n\n",
+                     tabel9b)
+}
+
+if(exists("tabel10")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier\n\n",
+                     tabel10)
+}
+
+if(exists("tabel11")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A11: Deskriptiv statistik for H5 - Store partier\n\n",
+                     tabel11)
+}
+
+# Gem den opdaterede samlede dokument
+writeLines(tabeller_samlet, "Deskriptiv Statistik/alle_tabeller.md")
+
+# Bekræft at filerne er blevet gemt
+liste_filer <- list.files("Deskriptiv Statistik", full.names = TRUE)
+print(liste_filer)
+
+# Afsluttende besked
+cat("\nDeskriptiv statistik er nu gemt i mappen 'Deskriptiv Statistik'.\n")
+cat("Der er genereret både markdown (.md) og csv-filer samt visualiseringer (.png).\n")
+```
 
