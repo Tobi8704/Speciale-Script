@@ -1,0 +1,2097 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# 1. Setup and Data Preparation
+```{r Load af data}
+final_dataset <- readRDS("final_dataset_publisering.rds")
+```
+
+
+
+## 1.1 Package Installation and Loading
+
+```{r package_installation}
+# Install pacman if not already installed
+if (!require("pacman")) install.packages("pacman")
+
+pacman::p_load(
+  # Data manipulation
+  dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate, quantreg, MASS,
+  
+  # Visualization
+  ggplot2, patchwork, scales, RColorBrewer, gridExtra, ggridges, corrplot, ggh4x, modelsummary, kableExtra, UpSetR, reshape2, viridis, plotly,
+  
+  # Statistical analysis
+  rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, ivreg,
+  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm,
+  
+  # Missing data analysis
+  naniar,
+  
+  # Specific data sources
+  manifestoR
+)
+
+# Load custom RDD functions if available
+if (file.exists("gp_rdd_funktioner.R")) {
+  source("gp_rdd_funktioner.R")
+}
+
+if (file.exists("coefficient_stability_plots.R")) {
+  source("coefficient_stability_plots.R")
+}
+
+if (file.exists("placebo_tests.R")) {
+  source("placebo_tests.R")
+} 
+```
+
+## 1.2 Helper Functions
+
+```{r helper_functions}
+# Function to filter European countries
+filter_european_countries <- function(data, country_col = "country_name") {
+  european_countries <- c(
+    "Austria", "Bulgaria", "Croatia", "Czech Republic", "Denmark", 
+    "Estonia", "Finland", "Germany", "Greece", "Ireland", "Italy", 
+    "Latvia", "Luxembourg", "Netherlands", "Norway", "Poland", 
+    "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", 
+    "Sweden", "Switzerland"
+  )
+  
+  filter(data, !!sym(country_col) %in% european_countries)
+}
+
+# Funktion til at udføre robusthedstest med forskellige båndbredder
+run_rdd_robustness <- function(data, 
+                              outcome_var = "miljø_afhængig",
+                              running_var = "centered_lagged_pervote_samlet", 
+                              bw_list = c(1, 1.5, 2, 2.5, 3),
+                              polynomials = c(1, 2, 3, 4),
+                              cutpoint = 0,
+                              covariates = NULL,
+                              group_label = "") {
+  
+  # Tom liste til resultater
+  all_results <- list()
+  
+  # Håndtering af kovariater
+  if (!is.null(covariates)) {
+    # Opret kovariat-matrix på forhånd
+    covs_matrix <- NULL
+    if (length(covariates) > 0) {
+      # Forsøg at bygge kovariat-matrix manuelt
+      covs_list <- list()
+      for (i in 1:length(covariates)) {
+        col_name <- covariates[i]
+        if (col_name %in% names(data)) {
+          covs_list[[i]] <- data[[col_name]]
+        } else {
+          warning(paste("Kolonne", col_name, "findes ikke i datasættet."))
+          covs_list[[i]] <- NULL
+        }
+      }
+      # Fjern NULL værdier
+      covs_list <- covs_list[!sapply(covs_list, is.null)]
+      
+      # Hvis der er nogen kovariater tilbage, lav en matrix
+      if (length(covs_list) > 0) {
+        covs_matrix <- do.call(cbind, covs_list)
+      }
+    }
+  } else {
+    covs_matrix <- NULL
+  }
+  
+  # Loop over polynomier
+  for (p in polynomials) {
+    
+    # HVIS p <= 2, laver den 'ikke-parametrisk' med faste båndbredder
+    if (p <= 2) {
+      
+      # Loop over båndbredder
+      for (bw in bw_list) {
+        # Prøv at køre rdrobust med fejlhåndtering
+        tryCatch({
+          # Kør rdrobust uden kovariater
+          if (is.null(covs_matrix)) {
+            rd <- rdrobust(
+              y = data[[outcome_var]],
+              x = data[[running_var]],
+              c = cutpoint,
+              p = p,
+              h = bw
+            )
+          } else {
+            # Kør rdrobust med kovariater
+            rd <- rdrobust(
+              y = data[[outcome_var]],
+              x = data[[running_var]],
+              c = cutpoint,
+              p = p,
+              h = bw,
+              covs = covs_matrix
+            )
+          }
+          
+          # Gem KUN conventional-estimatet: [1]
+          tmp <- data.frame(
+            Bandwidth    = bw,
+            Polynomial   = p,
+            LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
+            StdErr       = formatC(rd$se[1], format = "f", digits = 4),
+            p_value      = formatC(rd$pv[1], format = "f", digits = 4),
+            N_left_of_c  = rd$N_h[1],
+            N_right_of_c = rd$N_h[2]
+          )
+          
+          # Tilføj en kolonne med p-værdi-stjerner
+          tmp$p_value_star <- paste0(
+            tmp$p_value,
+            ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+                   ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                          ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+          )
+          
+          # Læg i listen over resultater
+          all_results[[paste0("p", p, "_bw", bw)]] <- tmp
+          
+        }, error = function(e) {
+          warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og bw =", bw, ":", e$message))
+        })
+      }
+      
+    } else {
+      # HVIS p > 2, laver den "global" og sætter h = NULL (eller en meget stor værdi)
+      tryCatch({
+        # Kør rdrobust uden kovariater
+        if (is.null(covs_matrix)) {
+          rd <- rdrobust(
+            y = data[[outcome_var]],
+            x = data[[running_var]],
+            c = cutpoint,
+            p = p,
+            h = NULL   # lader rdrobust selv vælge båndbredde
+          )
+        } else {
+          # Kør rdrobust med kovariater
+          rd <- rdrobust(
+            y = data[[outcome_var]],
+            x = data[[running_var]],
+            c = cutpoint,
+            p = p,
+            h = NULL,   # lader rdrobust selv vælge båndbredde
+            covs = covs_matrix
+          )
+        }
+        
+        # Gem KUN conventional-estimatet: [1]
+        tmp <- data.frame(
+          Bandwidth    = NA,  # "Global" => ingen fastsat h
+          Polynomial   = p,
+          LATE         = formatC(rd$Estimate[1], format = "f", digits = 4),
+          StdErr       = formatC(rd$se[1], format = "f", digits = 4),
+          p_value      = formatC(rd$pv[1], format = "f", digits = 4),
+          N_left_of_c  = rd$N_h[1],
+          N_right_of_c = rd$N_h[2]
+        )
+        
+        # Tilføj en kolonne med p-værdi-stjerner
+        tmp$p_value_star <- paste0(
+          tmp$p_value,
+          ifelse(as.numeric(tmp$p_value) < 0.01, "***",
+                 ifelse(as.numeric(tmp$p_value) < 0.05, "**",
+                        ifelse(as.numeric(tmp$p_value) < 0.1, "*", "")))
+        )
+        
+        # Læg i listen
+        all_results[[paste0("p", p, "_global")]] <- tmp
+        
+      }, error = function(e) {
+        warning(paste("Fejl ved kørsel af rdrobust med p =", p, "og global båndbredde:", e$message))
+      })
+    }
+  }
+  
+  if (length(all_results) > 0) {
+    results_df <- do.call(rbind, all_results)
+    
+    # Tilføj en kolonne med gruppelabel, hvis angivet
+    if (group_label != "") {
+      results_df$Group <- group_label
+    }
+    
+    return(results_df)
+  } else {
+    warning("Ingen resultater produceret. Tjek data og parametre.")
+    return(NULL)
+  }
+}
+
+# Function to calculate Lowe's RILE score
+calculate_rile_lowe <- function(data) {
+  right_cols <- c("per104", "per201", "per203", "per305", "per401", "per402", "per407", 
+                 "per414", "per505", "per601", "per603", "per605", "per606")
+  left_cols <- c("per103", "per105", "per106", "per107", "per202", "per403", "per404", 
+                "per406", "per412", "per413", "per504", "per506", "per701")
+  
+  # Debug: Identify missing columns
+  missing_right <- right_cols[!right_cols %in% names(data)]
+  missing_left <- left_cols[!left_cols %in% names(data)]
+  print(paste("Missing right columns:", paste(missing_right, collapse=", ")))
+  print(paste("Missing left columns:", paste(missing_left, collapse=", ")))
+  
+  # Filter to only include columns that exist in the dataset
+  right_cols_exist <- right_cols[right_cols %in% names(data)]
+  left_cols_exist <- left_cols[left_cols %in% names(data)]
+  
+  # Calculate RILE score
+  data %>%
+    mutate(rile_lowe = log((rowSums(dplyr::select(., dplyr::all_of(right_cols_exist)) + 0.5)) / 
+                          (rowSums(dplyr::select(., dplyr::all_of(left_cols_exist)) + 0.5))))
+}
+
+# Function to remove duplicates based on specific columns
+remove_duplicates <- function(data, group_cols, value_col) {
+  data %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
+    dplyr::mutate(max_value = max({{value_col}}, na.rm = TRUE)) %>%
+    dplyr::filter({{value_col}} == max_value) %>%
+    dplyr::distinct(dplyr::across(dplyr::all_of(group_cols)), .keep_all = TRUE) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(-"max_value")  # Change to this or the alternate option below
+}
+
+# Function to create standard RDD plot
+plot_rdd <- function(data, x_var, y_var, group_var, 
+                    x_limit = 10, 
+                    x_label = "Treatment Variable", 
+                    y_label = "Result", 
+                    title = "RDD Plot") {
+  # Ensure x_var, y_var, and group_var are treated as strings (column names)
+  ggplot(data = subset(data, data[[x_var]] <= x_limit)) +
+    geom_point(aes(x = .data[[x_var]], y = .data[[y_var]], shape = .data[[group_var]]), size = 2) +
+    geom_smooth(data = subset(data, data[[x_var]] < 0),
+                aes(x = .data[[x_var]], y = .data[[y_var]]),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    geom_smooth(data = subset(data, data[[x_var]] >= 0),
+                aes(x = .data[[x_var]], y = .data[[y_var]]),
+                method = 'lm', formula = y ~ poly(x, 3, raw = TRUE), 
+                linetype = 1, color = 'black', size = 1) +
+    scale_shape_manual(values = c(1, 16)) +  # 1 = tom cirkel, 16 = fyldt cirkel
+    geom_vline(xintercept = 0, linetype = 2, size = .6) +
+    xlim(-5, x_limit) +  # Sætter x-aksens grænser
+    theme_minimal() +
+    labs(title = title, x = x_label, y = y_label) +
+    theme(legend.position = 'bottom', legend.title = element_blank())
+}
+```
+
+
+```{r h1_analysis}
+# Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
+dir.create("Publisering Analyse", showWarnings = FALSE)
+
+# Opret derefter undermappen H4 tests - Appendiks
+dir.create("Publisering Analyse/H1", showWarnings = FALSE)
+
+# 0. For H1 analysis that examines Green Party parliamentary entry effect ----------------
+h1_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
+                                                                 "centered_lagged_pervote_samlet", 
+                                                                 "lagged_i_parlament",
+                                                                 "country", 
+                                                                 "edate")]), ]
+
+# Check how many observations there are now
+nrow(h1_analysis_data)
+
+# Compare with original and clean_data
+cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
+cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
+cat("Rows in clean_data:", nrow(clean_data), "\n")
+
+# Compare with original and clean_data
+cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
+cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
+cat("Rows in clean_data:", nrow(clean_data), "\n")
+
+# 1. VISUAL INSPECTION OF THE DISCONTINUITY ----------------
+
+# Create RDD plot 
+h1_plot_rdd <- plot_rdd(
+  data = h1_analysis_data,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (Centered on Cut-off)",
+  y_label = "Environmental Focus",
+  title = "Effect of Green Party Entry on Mainstream Environmental Focus"
+)
+
+# Save the plot
+ggsave("Publisering Analyse/H1/h1_rdd_plot.png", h1_plot_rdd, width = 10, height = 6, dpi = 300)
+
+# 2. RDD ESTIMATION ----------------
+
+# Main RDD estimation with optimal bandwidth
+h1_rdd <- rdrobust(
+  y = h1_analysis_data$miljø_afhængig,
+  x = h1_analysis_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,  # linear polynomial
+  kernel = "triangular",
+  bwselect = "mserd"  # MSE-optimal bandwidth
+)
+
+# Print summary
+summary_h1 <- summary(h1_rdd)
+
+# Opret tabel direkte fra h1_rdd objektet
+main_results <- data.frame(
+  Outcome = "Climate Position",
+  Bandwidth = round(h1_rdd$bws[1, 1], 3),
+  LATE = round(h1_rdd$Estimate[1], 3),
+  StdError = round(h1_rdd$se[1], 3),
+  pvalue = round(h1_rdd$pv[1], 3),
+  CI_Lower = round(h1_rdd$ci[1, 1], 3),
+  CI_Upper = round(h1_rdd$ci[1, 2], 3)
+)
+
+main_results_table <- knitr::kable(main_results, 
+                                  caption = "Main RDD Results for H1",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+
+writeLines(main_results_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_main_results.md"))
+print(main_results_table)
+write.csv(main_results_table, "Publisering Analyse/H1/Publisering h1_main_results.csv", row.names = FALSE)  
+
+
+# 3. ROBUSTNESS CHECKS ----------------
+
+# 3.1 Different Bandwidths and Polynomial Orders ----------
+
+results_df_h1 <- run_rdd_robustness(
+  data = h1_analysis_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3, 3.5, 4),
+  polynomials = c(1, 2, 3, 4),
+  covariates = c("country", "edate"),
+  group_label = "H1"
+)
+
+print(results_df_h1)
+selected_columns <- c("Group", "Polynomial", "Bandwidth", "LATE", "p_value", "StdErr", "N_left_of_c", "N_right_of_c")
+subset_df <- results_df_h1[, selected_columns]
+robustness_table_h1 <- knitr::kable(subset_df, 
+                               caption = "RDD Estimates Across Different Specifications",
+                               col.names = c("Group", "Polynomial", "Bandwidth", "LATE","p-value", "Std. Error", 
+                                              "N Left", "N Right"))
+
+writeLines(robustness_table_h1, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_robustness_table.md"))
+print(robustness_table_h1)
+write.csv(subset_df, "Publisering Analyse/H1/Publisering h1_robustness_table.csv", row.names = FALSE)
+
+
+# 3.2 Looking at different DV's --------------------
+#environment (positive) per501
+results_df_h1_per501 <- run_rdd_robustness(
+  data = h1_analysis_data,
+  outcome_var = "per501",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = c("country", "edate"),
+  group_label = "H1"
+)
+
+print(results_df_h1_per501)
+selected_columns <- c("Group", "Polynomial", "Bandwidth", "LATE", "p_value", "StdErr", "N_left_of_c", "N_right_of_c")
+subset_df <- results_df_h1_per501[, selected_columns]
+robustness_table_per501 <- knitr::kable(subset_df, 
+                               caption = "RDD Estimates Across Different Specifications",
+                               col.names = c("Group", "Polynomial", "Bandwidth", "LATE","p-value", "Std. Error", 
+                                              "N Left", "N Right"))
+
+writeLines(robustness_table_per501, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_robustness_table_per501.md"))
+print(robustness_table_per501)
+write.csv(subset_df, "Publisering Analyse/H1/Publisering h1_robustness_table_per501.csv", row.names = FALSE)
+
+#Sustainability (positive) per416_2
+results_df_h1_per416_2 <- run_rdd_robustness(
+  data = h1_analysis_data,
+  outcome_var = "per416_2",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = c("country", "edate"),
+  group_label = "H1"
+)
+
+print(results_df_h1_per416_2)
+selected_columns <- c("Group", "Polynomial", "Bandwidth", "LATE", "p_value", "StdErr", "N_left_of_c", "N_right_of_c")
+subset_df <- results_df_h1_per416_2[, selected_columns]
+robustness_table_per416_2 <- knitr::kable(subset_df, 
+                               caption = "RDD Estimates Across Different Specifications",
+                               col.names = c("Group", "Polynomial", "Bandwidth", "LATE","p-value", "Std. Error", 
+                                              "N Left", "N Right"))
+
+writeLines(robustness_table_per416_2, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_robustness_table_per416_2.md"))
+print(robustness_table_per416_2)
+write.csv(subset_df, "Publisering Analyse/H1/Publisering h1_robustness_table_per416_2.csv", row.names = FALSE)
+
+# 3.3 Difference between SPD and CDU in Germany ---------------------
+# 1. Create Subsets for Germany
+# Social Democrats
+data_SPD <- subset(h1_analysis_data, country == 41 & party == 41320)
+
+# Christian Democratic Union
+data_CDU <- subset(h1_analysis_data, country == 41 & party == 41521)
+
+# 2. Run RDD for Social Democrats
+results_SPD <- run_rdd_robustness(
+  data = data_SPD,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1),
+  covariates = c("edate"),
+  group_label = "Germany - SPD"
+)
+
+# 3. Run RDD for Venstre
+results_CDU <- run_rdd_robustness(
+  data = data_CDU,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+   bw_list = c(1, 1.5, 2, 2.5, 3),  
+  polynomials = c(1),
+  covariates = c("edate"),
+  group_label = "Germany - CDU"
+)
+
+# 4. Compare
+print("--- Social Democrats Results ---")
+print(results_SPD)
+print("--- CDU Results ---")
+print(results_CDU)
+
+# 3.4 Germany ----------------------------
+# Extract SPD Data (Germany 2005)
+spd_data_2005 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41320 & 
+                   format(as.Date(edate), "%Y") == "2005") 
+
+# Extract CDU/CSU Data (Germany 2005)
+cdu_data_2005 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41521 & 
+                   format(as.Date(edate), "%Y") == "2005") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+spd_score_2005 <- spd_data_2005$miljø_afhængig[1]
+cdu_score_2005 <- cdu_data_2005$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+german_gap_2005 <- abs(spd_score_2005 - cdu_score_2005)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_ge_2005 <- (my_late_estimate / german_gap_2005) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SPD Score (DE 2005):    ", round(spd_score_2005, 3)))
+print(paste("CDU/CSU Score (DE 2005):", round(cdu_score_2005, 3)))
+print(paste("The German Gap:         ", round(german_gap_2005, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_ge_2005, 1), "% of the gap between the SPD and CDU."))
+
+# --- STEP 2: Select the Election Year ---
+
+# Extract SPD Data (Germany 2009)
+spd_data_2009 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41320 & 
+                   format(as.Date(edate), "%Y") == "2009") 
+
+# Extract CDU/CSU Data (Germany 2009)
+cdu_data_2009 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41521 & 
+                   format(as.Date(edate), "%Y") == "2009") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+spd_score_2009 <- spd_data_2009$miljø_afhængig[1]
+cdu_score_2009 <- cdu_data_2009$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+german_gap_2009 <- abs(spd_score_2009 - cdu_score_2009)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_ge_2009 <- (my_late_estimate / german_gap_2009) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SPD Score (DE 2009):    ", round(spd_score_2009, 3)))
+print(paste("CDU/CSU Score (DE 2009):", round(cdu_score_2009, 3)))
+print(paste("The German Gap:         ", round(german_gap_2009, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_ge_2009, 1), "% of the gap between the SPD and CDU."))
+
+# Extract SPD Data (Germany 2013)
+spd_data_2013 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41320 & 
+                   format(as.Date(edate), "%Y") == "2013") 
+
+# Extract CDU/CSU Data (Germany 2013)
+cdu_data_2013 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41521 & 
+                   format(as.Date(edate), "%Y") == "2013") 
+
+# --- Germany 2013 ---
+# We take the first value found to avoid potential duplicates
+spd_score_2013 <- spd_data_2013$miljø_afhængig[1]
+cdu_score_2013 <- cdu_data_2013$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+german_gap_2013 <- abs(spd_score_2013 - cdu_score_2013)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_ge_2013 <- (my_late_estimate / german_gap_2013) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SPD Score (DE 2013):    ", round(spd_score_2013, 3)))
+print(paste("CDU/CSU Score (DE 2013):", round(cdu_score_2013, 3)))
+print(paste("The German Gap:         ", round(german_gap_2013, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_ge_2013, 1), "% of the gap between the SPD and CDU."))
+
+# --- Germany 2017 ---
+# Extract SPD Data (Germany 2017)
+spd_data_2017 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41320 & 
+                   format(as.Date(edate), "%Y") == "2017") 
+
+# Extract CDU/CSU Data (Germany 2017)
+cdu_data_2017 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41521 & 
+                   format(as.Date(edate), "%Y") == "2017") 
+
+# --- STEP 3: Get the Scores 20 ---
+# We take the first value found to avoid potential duplicates
+spd_score_2017 <- spd_data_2017$miljø_afhængig[1]
+cdu_score_2017 <- cdu_data_2017$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+german_gap_2017 <- abs(spd_score_2017 - cdu_score_2017)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_ge_2017 <- (my_late_estimate / german_gap_2017) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SPD Score (DE 2017):    ", round(spd_score_2017, 3)))
+print(paste("CDU/CSU Score (DE 2017):", round(cdu_score_2017, 3)))
+print(paste("The German Gap:         ", round(german_gap_2017, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_ge_2017, 1), "% of the gap between the SPD and CDU."))
+
+# --- Germany 2021 ---
+# Extract SPD Data (Germany 2021)
+spd_data_2021 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41320 & 
+                   format(as.Date(edate), "%Y") == "2021") 
+
+# Extract CDU/CSU Data (Germany 2021)
+cdu_data_2021 <- subset(h1_analysis_data, 
+                   country == 41 & 
+                   party == 41521 & 
+                   format(as.Date(edate), "%Y") == "2021") 
+
+# --- STEP 3: Get the Scores 20 ---
+# We take the first value found to avoid potential duplicates
+spd_score_2021 <- spd_data_2021$miljø_afhængig[1]
+cdu_score_2021 <- cdu_data_2021$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+german_gap_2021 <- abs(spd_score_2021 - cdu_score_2021)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_ge_2021 <- (my_late_estimate / german_gap_2021) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SPD Score (DE 2021):    ", round(spd_score_2021, 3)))
+print(paste("CDU/CSU Score (DE 2021):", round(cdu_score_2021, 3)))
+print(paste("The German Gap:         ", round(german_gap_2021, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_ge_2021, 1), "% of the gap between the SPD and CDU."))
+
+# 3.4 Denmark ----------------------------
+# --- Denmark 2007 ---
+# Extract SD Data (Denmark 2007)
+sd_data_2007 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13320 & 
+                   format(as.Date(edate), "%Y") == "2007") 
+
+# Extract Venstre Data (Denmark 2007)
+v_data_2007 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13420 & 
+                   format(as.Date(edate), "%Y") == "2007") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+sd_score_2007 <- sd_data_2007$miljø_afhængig[1]
+v_score_2007 <- v_data_2007$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+denmark_gap_2007 <- abs(sd_score_2007 - v_score_2007)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_dk_2007 <- (my_late_estimate / denmark_gap_2007) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SD Score (DK 2007):    ", round(sd_score_2007, 3)))
+print(paste("V Score (DK 2007):", round(v_score_2007, 3)))
+print(paste("The Danish Gap:         ", round(denmark_gap_2007, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_dk_2007, 1), "% of the gap between the SD and V."))
+
+# --- Denmark 2011 ---
+# --- STEP 2: Select the Election Year ---
+# Extract SD Data (Denmark 2011)
+sd_data_2011 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13320 & 
+                   format(as.Date(edate), "%Y") == "2011") 
+
+# Extract Venstre Data (Denmark 2011)
+v_data_2011 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13420 & 
+                   format(as.Date(edate), "%Y") == "2011") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+sd_score_2011 <- sd_data_2011$miljø_afhængig[1]
+v_score_2011 <- v_data_2011$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+denmark_gap_2011 <- abs(sd_score_2011 - v_score_2011)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_dk_2011 <- (my_late_estimate / denmark_gap_2011) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SD Score (DK 2011):    ", round(sd_score_2011, 3)))
+print(paste("V Score (DK 2011):", round(v_score_2011, 3)))
+print(paste("The Danish Gap:         ", round(denmark_gap_2011, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_dk_2011, 1), "% of the gap between the SD and V."))
+
+# --- Denmark 2015 ---
+# Extract SD Data (Denmark 2015)
+sd_data_2015 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13320 & 
+                   format(as.Date(edate), "%Y") == "2015") 
+
+# Extract Venstre Data (Denmark 2015)
+v_data_2015 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13420 & 
+                   format(as.Date(edate), "%Y") == "2015") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+sd_score_2015 <- sd_data_2015$miljø_afhængig[1]
+v_score_2015 <- v_data_2015$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+denmark_gap_2015 <- abs(sd_score_2015 - v_score_2015)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_dk_2015 <- (my_late_estimate / denmark_gap_2015) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SD Score (DK 2015):    ", round(sd_score_2015, 3)))
+print(paste("V Score (DK 2015):", round(v_score_2015, 3)))
+print(paste("The Danish Gap:         ", round(denmark_gap_2015, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_dk_2015, 1), "% of the gap between the SD and V."))
+
+# --- Denmark 2019 ---
+# Extract SD Data (Denmark 2019)
+sd_data_2019 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13320 & 
+                   format(as.Date(edate), "%Y") == "2019") 
+
+# Extract Venstre Data (Denmark 2019)
+v_data_2019 <- subset(h1_analysis_data, 
+                   country == 13 & 
+                   party == 13420 & 
+                   format(as.Date(edate), "%Y") == "2019") 
+
+# --- STEP 3: Get the Scores ---
+# We take the first value found to avoid potential duplicates
+sd_score_2019 <- sd_data_2019$miljø_afhængig[1]
+v_score_2019 <- v_data_2019$miljø_afhængig[1]
+
+# --- STEP 4: Calculate the "Grand Coalition Gap" ---
+denmark_gap_2019 <- abs(sd_score_2019 - v_score_2019)
+
+# --- STEP 5: Compare your LATE to this Gap ---
+# Your LATE estimate (e.g., 1.26 from your best model)
+my_late_estimate <- 1.26 
+
+magnitude_percentage_dk_2019 <- (my_late_estimate / denmark_gap_2019) * 100
+
+# --- STEP 6: Print the Result ---
+print(paste("SD Score (DK 2019):    ", round(sd_score_2019, 3)))
+print(paste("V Score (DK 2019):", round(v_score_2019, 3)))
+print(paste("The Danish Gap:         ", round(denmark_gap_2019, 3)))
+print(paste("Your LATE is equal to", round(magnitude_percentage_dk_2019, 1), "% of the gap between the SD and V."))
+
+
+# --- Seaching for a good pair ----------
+# --- Find 10 Perfect Pairs (Post-2000, 2 Decimals) ---
+ten_pairs <- h1_analysis_data %>%
+  # 1. Setup: Create Year, filter post-2000, remove NAs
+  mutate(year = as.numeric(format(as.Date(edate), "%Y"))) %>%
+  filter(year > 2000) %>%
+  filter(!is.na(miljø_afhængig)) %>%
+
+  # 2. Group by Country and Year
+  group_by(countryname, year) %>%
+  
+  # 3. Generate Pairs
+  do({
+    sub_data <- .
+    
+    if(nrow(sub_data) < 2) {
+      data.frame()
+    } else {
+      # Create matrix of all pair combinations
+      pairs_idx <- t(combn(nrow(sub_data), 2))
+      
+      data.frame(
+        Country   = sub_data$countryname[1],
+        Year      = sub_data$year[1],
+        Party_A   = sub_data$partyname[pairs_idx[,1]],
+        Party_B   = sub_data$partyname[pairs_idx[,2]],
+        Score_A   = sub_data$miljø_afhængig[pairs_idx[,1]],
+        Score_B   = sub_data$miljø_afhængig[pairs_idx[,2]],
+        Gap       = abs(sub_data$miljø_afhængig[pairs_idx[,1]] - sub_data$miljø_afhængig[pairs_idx[,2]])
+      )
+    }
+  }) %>%
+  ungroup() %>%
+  
+  # 4. FILTERING RULES
+  # Rule A: Gap must be between 1.0 and 1.5
+  filter(Gap >= 1.0 & Gap <= 1.5) %>%
+  # Rule B: Scores must be meaningful (ignore virtually zero scores)
+  filter(abs(Score_A) > 0.01 & abs(Score_B) > 0.01) %>%
+  
+  # 5. ROUNDING (The fix you asked for)
+  mutate(
+    Score_A = round(Score_A, 2),
+    Score_B = round(Score_B, 2),
+    Gap     = round(Gap, 2)
+  ) %>%
+
+  # 6. Select just 10 pairs
+  slice_head(n = 10)
+
+# --- Print the Result ---
+print(ten_pairs)
+
+```
+
+
+
+```{r h4_analysis}
+dir.create("Publisering Analyse", showWarnings = FALSE)
+
+# Opret derefter undermappen H4 tests - Appendiks
+dir.create("Publisering Analyse/H4", showWarnings = FALSE)
+
+# 0. Klargør Data ----------------
+# For H4 analysis examining party ideology moderation
+h4_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
+                                                                 "centered_lagged_pervote_samlet", 
+                                                                 "lagged_i_parlament",
+                                                                 "left_party_lag1",
+                                                                 "country", 
+                                                                 "edate")]), ]
+
+# Check how many observations there are now
+nrow(h4_analysis_data)
+
+# Opdel baseret på om partiet er venstre- eller højreorienteret
+clean_data_right_party <- subset(h4_analysis_data, left_party_lag1 == 0)
+clean_data_left_party <- subset(h4_analysis_data, left_party_lag1 == 1)
+
+# 1. VISUAL INSPECTION OF THE DISCONTINUITY ----------------
+# Plots for right parties
+h4_plot_right <- plot_rdd(
+  data = clean_data_right_party,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (Centered on Cut-off)",
+  y_label = "Environmental Focus",
+  title = "Effect of Green Party Entry on Right-Wing Parties"
+)
+print(h4_plot_right)
+
+# Plots for left parties
+h4_plot_left <- plot_rdd(
+  data = clean_data_left_party,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (Centered on Cut-off)",
+  y_label = "Environmental Focus",
+  title = "Effect of Green Party Entry on Left-Wing Parties"
+)
+print(h4_plot_left)
+
+# Først gemmer det kombinerede plot i en variabel
+combined_plot_h4 <- grid.arrange(h4_plot_left,h4_plot_right,
+             ncol = 2,
+             widths = c(1, 1),
+             top = "Comparison of Green Party Effect on Left/Right Parties")
+
+# Derefter bruger ggsave til at gemme plottet
+ggsave("Publisering Analyse/H4/Publisering comparison_green_party_hv_effect.png", combined_plot_h4, width = 12, height = 6)
+
+
+# 1.2 RDD ESTIMATION ----------------
+
+h4_rdd_right <- rdrobust(
+    y = clean_data_right_party$miljø_afhængig,
+    x = clean_data_right_party$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h4_rdd_right)
+
+# Opret tabel direkte fra h4_left_rdd objektet
+main_results_table_h4_right <- data.frame(
+  Outcome = "Climate Position",
+  Bandwidth = round(h4_rdd_right$bws[1, 1], 3),
+  LATE = round(h4_rdd_right$Estimate[1], 3),
+  StdError = round(h4_rdd_right$se[1], 3),
+  pvalue = round(h4_rdd_right$pv[1], 3),
+  CI_Lower = round(h4_rdd_right$ci[1, 1], 3),
+  CI_Upper = round(h4_rdd_right$ci[1, 2], 3)
+)
+  
+# Create a nice table for presentation
+main_results_table_h4_right <- knitr::kable(main_results_table_h4_right, 
+                                  caption = "Main RDD Results for H4_right",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+
+# Save the table to a file
+writeLines(main_results_table_h4_right, file.path(getwd(), "Analyse/H4/h4_right_main_results.md"))
+print(main_results_table_h4_right)
+write.csv(main_results_table_h4_right, "Publisering Analyse/H4/Publisering h4_right_main_results.csv", row.names = FALSE)  
+
+h4_rdd_left <- rdrobust(
+    y = clean_data_left_party$miljø_afhængig,
+    x = clean_data_left_party$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h4_rdd_left)
+
+# Opret tabel direkte fra h4_left_rdd objektet
+main_results_table_h4_left <- data.frame(
+  Outcome = "Climate Position",
+  Bandwidth = round(h4_rdd_left$bws[1, 1], 3),
+  LATE = round(h4_rdd_left$Estimate[1], 3),
+  StdError = round(h4_rdd_left$se[1], 3),
+  pvalue = round(h4_rdd_left$pv[1], 3),
+  CI_Lower = round(h4_rdd_left$ci[1, 1], 3),
+  CI_Upper = round(h4_rdd_left$ci[1, 2], 3)
+)
+  
+# Create a nice table for presentation
+main_results_table_h4_left <- knitr::kable(main_results_table_h4_left, 
+                                  caption = "Main RDD Results for H4_left",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+
+# Save the table to a file
+writeLines(main_results_table_h4_left, file.path(getwd(), "Analyse/H4/h4_left_main_results.md"))
+print(main_results_table_h4_left)
+write.csv(main_results_table_h4_left, "Publisering Analyse/H4/Publisering h4_left_main_results.csv", row.names = FALSE)  
+
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h4_rdd_right$Estimate[1] - h4_rdd_left$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h4_rdd_right$se[1]^2 + h4_rdd_left$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (Right Party - Left Party)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (Right Party - Left Party)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Publisering Analyse/H4/Publisering h4_party_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Publisering Analyse/H4/Publisering h4_party_difference_results.csv", row.names = FALSE)
+
+# 1.3 ROBUSTNESS CHECKS ----------------
+
+# Robustness analysis med forskellige båndbredder
+covariates_to_use <- c("country", "edate")
+
+# Kør robusthedsanalysen for højreorienterede partier
+results_df_h4_right <- run_rdd_robustness(
+  data = clean_data_right_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Right-Wing Parties"
+)
+
+# Kør robusthedsanalysen for venstreorienterede partier
+results_df_h4_left <- run_rdd_robustness(
+  data = clean_data_left_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Left-Wing Parties"
+)
+
+# Kombinér resultaterne for at sammenligne direkte
+combined_results_ideology <- rbind(results_df_h4_right, results_df_h4_left)
+print(combined_results_ideology)
+
+# Gem dataframes som CSV-filer
+write.csv(results_df_h4_right, "Publisering Analyse/H4/Publisering results_df_h4_right_parties.csv", row.names = FALSE)
+write.csv(results_df_h4_left, "Publisering Analyse/H4/Publisering results_df_h4_left_parties.csv", row.names = FALSE)
+write.csv(combined_results_ideology, "Publisering Analyse/H4/Publisering combined_results_ideology.csv", row.names = FALSE)
+```
+
+
+```{r h5_analysis}
+dir.create("Publisering Analyse", showWarnings = FALSE)
+
+# Opret derefter undermappen H5 tests - Appendiks
+dir.create("Publisering Analyse/H5", showWarnings = FALSE)
+
+# 0. Klargør Data ----------------
+# For H5 analysis examining party size moderation
+h5_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
+                                                                 "centered_lagged_pervote_samlet", 
+                                                                 "lagged_i_parlament",
+                                                                 "large_party_lag1",
+                                                                 "country", 
+                                                                 "edate")]), ]
+
+nrow(h5_analysis_data)
+
+  # Split data based on party size
+large_parties <- subset(h5_analysis_data, large_party_lag1 == 1)
+small_parties <- subset(h5_analysis_data, large_party_lag1 == 0)
+
+large_parties_old <- subset(h5_analysis_data, large_party_alt_lag1 == 1)
+small_parties_old <- subset(h5_analysis_data, large_party_alt_lag1 == 0)
+
+# 1.1 VISUAL INSPECTION OF THE DISCONTINUITY ----------------
+# Visual confirmation for large parties
+h5_large_plot <- plot_rdd(
+  data = large_parties,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (Centered on Cut-off)",
+  y_label = "Environmental Focus",
+  title = "Effect of Green Party Entry on Large Mainstream Parties"
+)
+print(h5_large_plot)
+
+# Visual confirmation for small parties
+h5_small_plot <- plot_rdd(
+  data = small_parties,
+  x_var = "centered_lagged_pervote_samlet",
+  y_var = "miljø_afhængig",
+  group_var = "factor_lagged_i_parlament",
+  x_limit = 10,
+  x_label = "Green Party Vote Share (Centered on Cut-off)",
+  y_label = "Environmental Focus",
+  title = "Effect of Green Party Entry on Small Mainstream Parties"
+)
+print(h5_small_plot)
+
+combined_plot_stor_lille <- grid.arrange(h5_large_plot, h5_small_plot, 
+             ncol = 2,
+             widths = c(1, 1),
+             top = "Comparison of Green Party Effect on Large/Small Mainstream Parties")
+
+# Derefter bruger ggsave til at gemme plottet
+ggsave("Publisering Analyse/H5/Publisering comparison_green_party_stor_lille_effect.png", combined_plot_stor_lille, width = 12, height = 6)
+
+
+# 1.2 RDD ESTIMATION ----------------
+h5_large_rdd <- rdrobust(
+    y = large_parties$miljø_afhængig,
+    x = large_parties$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  summary(h5_large_rdd)
+
+main_results_table_h5_large <- data.frame(
+  Outcome = "Climate Position",
+  Bandwidth = round(h5_large_rdd$bws[1, 1], 3),
+  LATE = round(h5_large_rdd$Estimate[1], 3),
+  StdError = round(h5_large_rdd$se[1], 3),
+  pvalue = round(h5_large_rdd$pv[1], 3),
+  CI_Lower = round(h5_large_rdd$ci[1, 1], 3),
+  CI_Upper = round(h5_large_rdd$ci[1, 2], 3)
+)
+  
+# Create a nice table for presentation
+main_results_table_h5_large <- knitr::kable(main_results_table_h5_large, 
+                                  caption = "Main RDD Results for H5_large",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+
+# Save the table to a file
+writeLines(main_results_table_h5_large, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_large_main_results.md"))
+print(main_results_table_h5_large)
+write.csv(main_results_table_h5_large, "Publisering Analyse/H5/Publisering h5_large_main_results.csv", row.names = FALSE) 
+  
+h5_small_rdd <- rdrobust(
+    y = small_parties$miljø_afhængig,
+    x = small_parties$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+
+main_results_table_h5_small <- data.frame(
+  Outcome = "Climate Position",
+  Bandwidth = round(h5_small_rdd$bws[1, 1], 3),
+  LATE = round(h5_small_rdd$Estimate[1], 3),
+  StdError = round(h5_small_rdd$se[1], 3),
+  pvalue = round(h5_small_rdd$pv[1], 3),
+  CI_Lower = round(h5_small_rdd$ci[1, 1], 3),
+  CI_Upper = round(h5_small_rdd$ci[1, 2], 3)
+)
+
+main_results_table_h5_small <- knitr::kable(main_results_table_h5_small, 
+                                  caption = "Main RDD Results for H5_small",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+
+# Save the table to a file
+writeLines(main_results_table_h5_small, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_small_main_results.md"))
+print(main_results_table_h5_small)
+write.csv(main_results_table_h5_small, "Publisering Analyse/H5/Publisering h5_small_main_results.csv", row.names = FALSE) 
+
+# Beregn forskellen i LATE (behandlingseffekt)
+difference_effect <- h5_large_rdd$Estimate[1] - h5_small_rdd$Estimate[1]
+
+# Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
+difference_se <- sqrt(h5_large_rdd$se[1]^2 + h5_small_rdd$se[1]^2)
+
+# Beregn z-værdi
+z_value <- difference_effect / difference_se
+
+# Beregn p-værdi (to-sidet test)
+p_value <- 2 * pnorm(-abs(z_value))
+
+# Beregn 95% konfidensinterval for forskellen
+ci_lower <- difference_effect - 1.96 * difference_se
+ci_upper <- difference_effect + 1.96 * difference_se
+
+# Opret en dataframe med forskellen
+difference_results <- data.frame(
+  Outcome = "Climate Position Difference (Large Parties - Small Parties)",
+  Effect = round(difference_effect, 3),
+  StdError = round(difference_se, 3),
+  pvalue = round(p_value, 3),
+  CI_Lower = round(ci_lower, 3),
+  CI_Upper = round(ci_upper, 3)
+)
+
+# Vis forskellen
+print(difference_results)
+
+# Opret en pæn tabel
+difference_table <- knitr::kable(difference_results,
+  caption = "Difference in RDD Results (Large Parties - Small Parties)",
+  col.names = c("Comparison", "Effect", "Std. Error", "p-value", "95% CI Lower", "95% CI Upper")
+)
+
+# Gem tabellen
+writeLines(difference_table, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_size_difference_results.md"))
+print(difference_table)
+write.csv(difference_results, "Publisering Analyse/H5/Publisering h5_size_difference_results.csv", row.names = FALSE)
+
+# 1.3 ROBUSTNESS CHECKS ----------------
+# Robustness analysis with different bandwidths
+covariates_to_use <- c("country", "edate")
+
+# Robustness analysis with different bandwidths
+covariates_to_use <- c("country", "edate")
+
+# Run the robustness analysis for large parties
+results_df_h5_large <- run_rdd_robustness(
+  data = large_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Store partier"
+)
+
+# Run the robustness analysis for small parties
+results_df_h5_small <- run_rdd_robustness(
+  data = small_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3),
+  polynomials = c(1, 2, 3, 4),
+  covariates = covariates_to_use,
+  group_label = "Små partier"
+)
+
+# Combine results for direct comparison
+combined_results_size <- rbind(results_df_h5_large, results_df_h5_small)
+print(combined_results_size)
+
+# Gem dataframes som CSV-filer
+write.csv(results_df_h5_large, "Publisering Analyse/H5/Publisering results_df_h5_large_parties.csv", row.names = FALSE)
+write.csv(results_df_h5_small, "Publisering Analyse/H5/Publisering results_df_h5_small_parties.csv", row.names = FALSE)
+write.csv(combined_results_size, "Publisering Analyse/H5/Publisering combined_results_size.csv", row.names = FALSE)
+```
+
+
+```{r Implementation af coefficient stability plots og placebo-tests}
+# 1.0 H1: GREEN PARTY PARLIAMENTARY ENTRY EFFECT (MAIN HYPOTHESIS) ----------------
+# Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
+dir.create("Publisering Robusthedstests", showWarnings = FALSE)
+
+# Opret derefter undermappen H4 tests - Appendiks
+dir.create("Publisering Robusthedstests/H1 tests - Appendiks", showWarnings = FALSE)
+
+# 1.1 Coefficient Stability Plots for H1 ----------------
+h1_stability_plot  <- create_coefficient_stability_plot(
+  data = h1_analysis_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomials = c(1, 2, 3),
+  covariates = c("country", "edate"),
+  title = "H1: When green parties enter parliament, Environmental Focus changes"
+)
+
+ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_stability_plot.png", plot = h1_stability_plot, width = 10, height = 6, dpi = 300)
+
+pdf("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_stability_plot.pdf", width = 10, height = 6)
+print(h1_stability_plot)
+dev.off()
+
+# 1.2 Placebo Threshold Tests for H1 ----------------
+h1_placebo_threshold <- run_placebo_threshold_test(
+  data = h1_analysis_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  true_cutpoint = 0,
+  placebo_range = c(-4, 4),
+  placebo_step = 0.5,
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+h1_placebo_plot <- plot_placebo_threshold_test(
+  h1_placebo_threshold,
+  title = "H1: Placebo Threshold Test"
+)
+ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_placebo_plot.png", plot = h1_placebo_plot, width = 10, height = 6, dpi = 300)
+
+# 1.3 Density Test for H1 (Manipulation Test) ----------------
+# Add McCrary density test
+h1_density_test <- rddensity(h1_analysis_data$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
+h1_density_test_summary <- summary(h1_density_test)
+h1_density_plot <- rdplotdensity(h1_density_test, 
+                               h1_analysis_data$centered_lagged_pervote_samlet,
+                               title = "H1: Density Test of Running Variable")
+summary(h1_density_test)
+ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_density_test.png", plot = h1_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+
+# ============================================================================
+# 4. H4: PARTY IDEOLOGY EFFECT
+# ============================================================================
+# Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
+dir.create("Publisering Robusthedstests", showWarnings = FALSE)
+
+# Opret derefter undermappen H4 tests - Appendiks
+dir.create("Publisering Robusthedstests/H4 tests - Appendiks", showWarnings = FALSE)
+
+# 2.2 Coefficient Stability Plots for H4 ----------------
+left_party_stability_plot  <- create_coefficient_stability_plot(
+  data = clean_data_left_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomials = c(1, 2, 3),
+  covariates = c("country", "edate"),
+  title = "H4: Effect on Left-wing Parties"
+)
+
+right_party_stability_plot  <- create_coefficient_stability_plot(
+  data = clean_data_right_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomials = c(1, 2, 3),
+  covariates = c("country", "edate"),
+  title = "H4: Effect on Right-wing Parties"
+)
+
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_party_stability.png", plot = h4_left_placebo_plot, width = 10, height = 6, dpi = 300)
+
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_party_stability.png", plot = h4_right_placebo_plot, width = 10, height = 6, dpi = 300)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p1_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 1)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p2_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 2,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 2)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p3_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h4_comparison_plot_p4_ideology <- compare_coefficient_stability(
+  data_list = list(clean_data_left_party, clean_data_right_party),
+  labels = c("Left-wing Parties", "Right-wing Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H4: Effect of Green Parties (Polynomial Order 4)"
+)
+
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  h4_all_poly_comparison_ideology <- gridExtra::grid.arrange(
+    h4_comparison_plot_p1_ideology, h4_comparison_plot_p2_ideology,
+    h4_comparison_plot_p3_ideology, h4_comparison_plot_p4_ideology,
+    ncol = 2, nrow = 2,
+    top = "H4: Effect of Green Parties Moderated by Party Ideology"
+  )
+  ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_all_polynomial_comparison_ideology.png", h4_all_poly_comparison_ideology, width = 12, height = 10, dpi = 300)
+}
+
+# 4.5 Placebo Threshold Tests for H4 (Party Ideology) ----------------
+h4_left_placebo <- run_placebo_threshold_test(
+  data = clean_data_left_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  true_cutpoint = 0,
+  placebo_range = c(-4, 4),
+  placebo_step = 0.5,
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+h4_right_placebo <- run_placebo_threshold_test(
+  data = clean_data_right_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  true_cutpoint = 0,
+  placebo_range = c(-4, 4),
+  placebo_step = 0.5,
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+# Plot placebo results
+h4_left_placebo_plot <- plot_placebo_threshold_test(
+  h4_left_placebo,
+  title = "H4: Placebo Test (Left-wing Parties)"
+)
+
+h4_right_placebo_plot <- plot_placebo_threshold_test(
+  h4_right_placebo,
+  title = "H4: Placebo Test (Right-wing Parties)"
+)
+
+# Save placebo plots
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_placebo.png", plot = h4_left_placebo_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_placebo.png", plot = h4_right_placebo_plot, width = 10, height = 6, dpi = 300)
+
+# 4.6 Density Tests for H4 (Party Ideology) ----------------
+# Add McCrary density test for left-wing parties
+h4_left_density_test <- rddensity(clean_data_left_party$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
+h4_left_density_summary <- summary(h4_left_density_test)
+h4_left_density_plot <- rdplotdensity(h4_left_density_test, 
+                                    clean_data_left_party$centered_lagged_pervote_samlet,
+                                    title = "H4: Density Test (Left-wing Parties)")
+
+# Add McCrary density test for right-wing parties
+h4_right_density_test <- rddensity(clean_data_right_party$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
+h4_right_density_summary <- summary(h4_right_density_test)
+h4_right_density_plot <- rdplotdensity(h4_right_density_test, 
+                                     clean_data_right_party$centered_lagged_pervote_samlet,
+                                     title = "H4: Density Test (Right-wing Parties)")
+
+summary(h4_left_density_test)
+summary(h4_right_density_test)
+
+# Save density plots
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_density.png", plot = h4_left_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_density.png", plot = h4_right_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+
+# 4.15 Outcome Placebo Tests for H4 (Party Ideology) ----------------
+# Using variables that shouldn't be affected by treatment
+placebo_vars <- c("rile_lowe", "per410") 
+
+# Left-wing Parties
+h4_left_outcome_placebo <- run_outcome_placebo_test(
+  data = clean_data_left_party,
+  real_outcome_var = "miljø_afhængig",
+  placebo_outcome_vars = placebo_vars,
+  running_var = "centered_lagged_pervote_samlet",
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+h4_left_outcome_placebo_plot <- plot_outcome_placebo_test(
+  h4_left_outcome_placebo,
+  title = "H4: Outcome Placebo Test (Left-wing Parties)"
+)
+
+# Right-wing Parties
+h4_right_outcome_placebo <- run_outcome_placebo_test(
+  data = clean_data_right_party,
+  real_outcome_var = "miljø_afhængig",
+  placebo_outcome_vars = placebo_vars,
+  running_var = "centered_lagged_pervote_samlet",
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+h4_right_outcome_placebo_plot <- plot_outcome_placebo_test(
+  h4_right_outcome_placebo,
+  title = "H4: Outcome Placebo Test (Right-wing Parties)"
+)
+
+# Save outcome placebo plots
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_outcome_placebo.png", plot = h4_left_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_outcome_placebo.png", plot = h4_right_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
+
+# ============================================================================
+# 5. H5: PARTY SIZE EFFECT
+# ============================================================================
+# Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
+dir.create("Publisering Robusthedstests", showWarnings = FALSE)
+
+# Opret derefter undermappen H4 tests - Appendiks
+dir.create("Publisering Robusthedstests/H5 tests - Appendiks", showWarnings = FALSE)
+
+# 2.2 Coefficient Stability Plots for H5 ----------------
+large_party_stability_plot  <- create_coefficient_stability_plot(
+  data = large_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomials = c(1, 2, 3),
+  covariates = c("country", "edate"),
+  title = "H5: Effect on Large Parties"
+)
+
+small_party_stability_plot  <- create_coefficient_stability_plot(
+  data = small_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomials = c(1, 2, 3),
+  covariates = c("country", "edate"),
+  title = "H5: Effect on Small Parties"
+)
+
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_party_stability_plot.png", plot = h5_large_party_stability_plot, width = 10, height = 6, dpi = 300)
+
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_party_stability.png", plot = h5_small_party_stability, width = 10, height = 6, dpi = 300)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p1_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 1,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 1)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p2_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 2,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 2)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p3_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 3,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 3)"
+)
+
+# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+h5_comparison_plot_p4_size <- compare_coefficient_stability(
+  data_list = list(large_parties, small_parties),
+  labels = c("Large Parties", "Small Parties"),
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = seq(1, 3, by = 0.5),
+  polynomial = 4,
+  covariates = c("country", "edate"),
+  title = "H5: Effect of Green Parties (Polynomial Order 4)"
+)
+
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+  h5_all_poly_comparison_size <- gridExtra::grid.arrange(
+    h5_comparison_plot_p1_size, h5_comparison_plot_p2_size,
+    h5_comparison_plot_p3_size, h5_comparison_plot_p4_size,
+    ncol = 2, nrow = 2,
+    top = "H5: Effect of Green Parties Moderated by Party Size"
+  )
+  ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_all_polynomial_comparison_size.png", h5_all_poly_comparison_size, width = 12, height = 10, dpi = 300)
+}
+
+# 5.5 Placebo Threshold Tests for H5 (Party Size) ----------------
+h5_large_placebo <- run_placebo_threshold_test(
+  data = large_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  true_cutpoint = 0,
+  placebo_range = c(-4, 4),
+  placebo_step = 0.5,
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+h5_small_placebo <- run_placebo_threshold_test(
+  data = small_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  true_cutpoint = 0,
+  placebo_range = c(-4, 4),
+  placebo_step = 0.5,
+  polynomial = 1,
+  bandwidth = 2,
+  covariates = c("country", "edate")
+)
+
+# Plot placebo results
+h5_large_placebo_plot <- plot_placebo_threshold_test(
+  h5_large_placebo,
+  title = "H5: Placebo Test (Large Parties)"
+)
+
+h5_small_placebo_plot <- plot_placebo_threshold_test(
+  h5_small_placebo,
+  title = "H5: Placebo Test (Small Parties)"
+)
+
+# Save placebo plots
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_placebo_plot.png", plot = h5_large_placebo_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_placebo_plot.png", plot = h5_small_placebo_plot, width = 10, height = 6, dpi = 300)
+
+# 5.6 Density Tests for H4 (Party Size) ----------------
+# Add McCrary density test for large parties
+h5_large_density_test <- rddensity(large_parties$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
+h5_large_density_summary <- summary(h5_large_density_test)
+h5_large_density_plot <- rdplotdensity(h5_large_density_test, 
+                                    large_parties$centered_lagged_pervote_samlet,
+                                    title = "H5: Density Test (Large Parties)")
+
+# Add McCrary density test for right-wing parties
+h5_small_density_test <- rddensity(small_parties$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
+h5_small_density_summary <- summary(h5_small_density_test)
+h5_small_density_plot <- rdplotdensity(h5_small_density_test, 
+                                     small_parties$centered_lagged_pervote_samlet,
+                                     title = "H5: Density Test (Small Parties)")
+
+summary(h5_large_density_test)
+summary(h5_small_density_test)
+
+# Save density plots
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_density.png", plot = h5_large_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_density.png", plot = h5_small_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+
+```
+
+
+####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
+```{r Fuld Deskriptiv Statistik}
+# Opret mappe til deskriptiv statistik hvis den ikke findes
+dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
+
+# 1. Basal deskriptiv statistik for nøglevariable ----------------
+
+stats_tabel <- data.frame(
+  Variabel = c(
+    "Klimaposition (miljø_afhængig)",
+    "Grønne partiers stemmeandel (centered_lagged_pervote_samlet)",
+    "Grønne partier i parlament (lagged_i_parlament)",
+    "Højreradikale partier i parlament (rrp_i_p_lag1)",
+    "Venstreorienteret parti (left_party_lag1)",
+    "Stort parti (large_party_lag1)"
+  ),
+  Gennemsnit = c(
+    mean(final_dataset$miljø_afhængig, na.rm = TRUE),
+    mean(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    mean(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    mean(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    mean(final_dataset$left_party_lag1, na.rm = TRUE),
+    mean(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Median = c(
+    median(final_dataset$miljø_afhængig, na.rm = TRUE),
+    median(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    median(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    median(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    median(final_dataset$left_party_lag1, na.rm = TRUE),
+    median(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Std_afvigelse = c(
+    sd(final_dataset$miljø_afhængig, na.rm = TRUE),
+    sd(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    sd(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    sd(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    sd(final_dataset$left_party_lag1, na.rm = TRUE),
+    sd(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Minimum = c(
+    min(final_dataset$miljø_afhængig, na.rm = TRUE),
+    min(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    min(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    min(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    min(final_dataset$left_party_lag1, na.rm = TRUE),
+    min(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  Maksimum = c(
+    max(final_dataset$miljø_afhængig, na.rm = TRUE),
+    max(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
+    max(final_dataset$lagged_i_parlament, na.rm = TRUE),
+    max(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
+    max(final_dataset$left_party_lag1, na.rm = TRUE),
+    max(final_dataset$large_party_lag1, na.rm = TRUE)
+  ),
+  N = c(
+    sum(!is.na(final_dataset$miljø_afhængig)),
+    sum(!is.na(final_dataset$centered_lagged_pervote_samlet)),
+    sum(!is.na(final_dataset$lagged_i_parlament)),
+    sum(!is.na(final_dataset$rrp_i_p_lag1)),
+    sum(!is.na(final_dataset$left_party_lag1)),
+    sum(!is.na(final_dataset$large_party_lag1))
+  )
+)
+
+# Formatter tallene pænt
+stats_tabel$Gennemsnit <- round(stats_tabel$Gennemsnit, 3)
+stats_tabel$Median <- round(stats_tabel$Median, 3)
+stats_tabel$Std_afvigelse <- round(stats_tabel$Std_afvigelse, 3)
+stats_tabel$Minimum <- round(stats_tabel$Minimum, 3)
+stats_tabel$Maksimum <- round(stats_tabel$Maksimum, 3)
+
+tabel1 <- kable(stats_tabel, 
+               caption = "Tabel A1: Deskriptiv statistik for nøglevariable i datasættet",
+               format = "markdown")
+
+# Gem som markdown-fil
+writeLines(tabel1, "Publisering Deskriptiv Statistik/tabel1_deskriptiv_statistik.md")
+
+# Gem også som CSV for backup
+write.csv(stats_tabel, "Publisering Deskriptiv Statistik/tabel1_deskriptiv_statistik.csv", row.names = FALSE)
+
+# 2. Lande i datasættet ----------------
+
+land_stats <- final_dataset %>%
+  group_by(countryname) %>%
+  summarise(
+    Antal_obs = n(),
+    Første_år = min(Year, na.rm = TRUE),
+    Sidste_år = max(Year, na.rm = TRUE),
+    Antal_partier = n_distinct(party),
+    Grønne_i_parlament = sum(lagged_i_parlament, na.rm = TRUE),
+    Højreradikale_i_parlament = sum(rrp_i_p_lag1, na.rm = TRUE),
+    Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3)
+  ) %>%
+  arrange(desc(Antal_obs))
+
+# Gem som markdown
+tabel2 <- kable(land_stats, 
+               caption = "Tabel A2: Oversigt over lande i datasættet",
+               format = "markdown")
+
+writeLines(tabel2, "Publisering Deskriptiv Statistik/tabel2_land_oversigt.md")
+write.csv(land_stats, "Publisering Deskriptiv Statistik/tabel2_land_oversigt.csv", row.names = FALSE)
+
+# 3. Partifamilier og klimaposition ----
+if("parfam" %in% names(final_dataset)) {
+  partifamilie_stats <- final_dataset %>%
+    mutate(
+      party_family = case_when(
+      parfam == "10" ~ "Grønne",
+      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
+      parfam == "30" ~ "Social Demokratiske",
+      parfam == "40" ~ "Liberale",
+      parfam == "50" ~ "Kristendemokratiske",
+      parfam == "60" ~ "Konservative",
+      parfam == "70" ~ "Nationalistiske",
+      parfam == "80" ~ "Agrarisk",
+      parfam == "90" ~ "Etniske/Regionale",
+      parfam == "95" ~ "Special emne partier",
+      parfam == "98" ~ "Valgalliance uden leder",
+      TRUE ~ "Andre"
+      )
+    ) %>%
+    group_by(party_family) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    arrange(desc(Gns_klimaposition))
+  
+  # Gem som markdown
+  tabel3 <- kable(partifamilie_stats, 
+                 caption = "Tabel A3: Klimapositioner efter partifamilie",
+                 format = "markdown")
+  
+  writeLines(tabel3, "Publisering Deskriptiv Statistik/tabel3_partifamilie_stats.md")
+  write.csv(partifamilie_stats, "Publisering Deskriptiv Statistik/tabel3_partifamilie_stats.csv", row.names = FALSE)
+}
+
+# 4. Missing data analyse -----
+key_variables <- c("miljø_afhængig", "centered_lagged_pervote_samlet", 
+                  "lagged_i_parlament", "rrp_i_p_lag1", "left_party_lag1", 
+                  "large_party_lag1", "good_economy_lag1", "GDP_per_capita_lag1",
+                  "Unemployment", "Inflation-consumer prices")
+
+# Sørg for at alle variable findes i datasættet
+key_variables <- key_variables[key_variables %in% names(final_dataset)]
+
+# Antal og procent af missing values
+missing_stats <- data.frame(
+  Variabel = key_variables,
+  Antal_missing = sapply(final_dataset[, key_variables], function(x) sum(is.na(x))),
+  Procent_missing = round(sapply(final_dataset[, key_variables], function(x) mean(is.na(x)) * 100), 1)
+)
+
+missing_stats <- missing_stats[order(-missing_stats$Procent_missing), ]
+
+# Gem som markdown
+tabel4 <- kable(missing_stats, 
+               caption = "Tabel A4: Manglende værdier i nøglevariable",
+               format = "markdown")
+
+writeLines(tabel4, "Publisering Deskriptiv Statistik/tabel4_missing_data.md")
+write.csv(missing_stats, "Publisering Deskriptiv Statistik/tabel4_missing_data.csv", row.names = FALSE)
+
+
+# 5. Grønne partiers succes over tid --------
+# Tjek først at de nødvendige variable findes
+if(all(c("Year", "pervote_samlet", "i_parlament") %in% names(final_dataset))) {
+  grønne_success_tid <- final_dataset %>%
+    group_by(Year) %>%
+    summarise(
+      grønne_partier = sum(!is.na(pervote_samlet)),
+      grønne_i_parlament = sum(i_parlament, na.rm = TRUE),
+      success_rate = grønne_i_parlament / grønne_partier
+    ) %>%
+    filter(!is.na(success_rate))
+  
+  tabel5 <- kable(grønne_success_tid, 
+                 caption = "Tabel A5: Grønne partiers succesrate over tid",
+                 col.names = c("År", "Antal grønne partier", "Antal i parlament", "Succesrate"),
+                 digits = 3,
+                 format = "markdown")
+  
+  # Gem tabellen
+  writeLines(tabel5, "Publisering Deskriptiv Statistik/tabel5_gronne_partiers_succes.md")
+  write.csv(grønne_success_tid, "Publisering Deskriptiv Statistik/tabel5_gronne_partiers_succes.csv", row.names = FALSE)
+}
+
+
+# 6. Fordeling af klimaposition -------------
+# Opret histogram over miljø_afhængig
+p1 <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "darkblue", alpha = 0.7) +
+  geom_density(color = "red", size = 1) +
+  labs(
+    title = "Distribution of Environmental Focus (miljø_afhængig)",
+    x = "Environmental Focus",
+    y = "Amount"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Publisering Deskriptiv Statistik/figur1_fordeling_klimaposition.png", p1, width = 10, height = 6, dpi = 300)
+
+
+# 7. Klimaposition pr. land -----------
+p2 <- ggplot(final_dataset, aes(x = reorder(countryname, miljø_afhængig, FUN = median, na.rm = TRUE), 
+                              y = miljø_afhængig)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Environmental Focus per Country",
+    x = "Country",
+    y = "Environmental Focus"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Publisering Deskriptiv Statistik/figur2_klimaposition_efter_land.png", p2, width = 10, height = 8, dpi = 300)
+
+
+# 8. Grønne partiers stemmeandel over tid -----------
+# Beregner gennemsnitlig stemmeandel for grønne partier pr. år
+stemmeandel_tid <- final_dataset %>%
+  group_by(Year) %>%
+  summarise(
+    gns_stemmeandel = mean(lagged_pervote_samlet, na.rm = TRUE),
+    median_stemmeandel = median(lagged_pervote_samlet, na.rm = TRUE)
+  ) %>%
+  filter(!is.na(gns_stemmeandel))
+
+p3 <- ggplot(stemmeandel_tid, aes(x = Year)) +
+  geom_line(aes(y = gns_stemmeandel), size = 1, color = "darkgreen") +
+  geom_line(aes(y = median_stemmeandel), size = 1, color = "green", linetype = "dashed") +
+  labs(
+    title = "Grønne partiers stemmeandel over tid",
+    x = "År",
+    y = "Stemmeandel (%)",
+    caption = "Kilde: Egne beregninger baseret på Manifesto Project Dataset"
+  ) +
+  theme_minimal()
+
+# Gem plottet
+ggsave("Deskriptiv Statistik/figur3_stemmeandel_over_tid.png", p3, width = 10, height = 6, dpi = 300)
+
+# 9. Threshold oversigt -----
+# Lav en ren tabel med thresholds uden party-kolonnen
+threshold_oversigt <- final_dataset %>%
+  # Gruppér efter land og valgdato for at fjerne dubletter på grund af partier
+  group_by(countryname, edate) %>%
+  # Tag kun én threshold-værdi per land/valgdato (da alle bør være identiske)
+  summarise(threshold = first(threshold), .groups = "drop") %>%
+  # Fjern rækker med manglende threshold-værdier
+  filter(!is.na(threshold)) %>%
+  # Sortér efter land og valgdato
+  arrange(countryname, edate)
+
+# Se de første rækker for at bekræfte at tabellen er korrekt
+print(head(threshold_oversigt))
+
+# Gem som CSV-fil
+write.csv(threshold_oversigt, "Deskriptiv Statistik/threshold_by_country_year.csv", row.names = FALSE)
+
+# Lav en pæn tabel med knitr
+tabel6 <- kable(threshold_oversigt, 
+               caption = "Tabel A6: Valggrænser (thresholds) efter land og år",
+               col.names = c("Land", "Valgdato", "Valggrænse (%)"),
+               format = "markdown")
+
+# Gem som markdown-fil
+writeLines(tabel6, "Deskriptiv Statistik/tabel6_threshold_by_country_year.md")
+
+
+# 10. Deskriptiv statistik for hver hypotese -----
+
+# H1: Grønne partier i parlament
+# Forventer at du har et datasæt kaldet h1_analysis_data
+if(exists("h1_analysis_data")) {
+  h1_stats <- h1_analysis_data %>%
+    group_by(lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3),
+      Min_klimaposition = round(min(miljø_afhængig, na.rm = TRUE), 3),
+      Max_klimaposition = round(max(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        lagged_i_parlament == 0 ~ "Ingen grønne partier i parlament",
+        lagged_i_parlament == 1 ~ "Grønne partier i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, 
+           Std_afv_klimaposition, Min_klimaposition, Max_klimaposition)
+  
+  tabel7 <- kable(h1_stats,
+                 caption = "Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament",
+                 format = "markdown")
+  writeLines(tabel7, "Deskriptiv Statistik/tabel7_h1_stats.md")
+  
+
+  
+}
+
+# H4: Venstreorienterede partier
+if(exists("h4_analysis_data")) {
+  h4_stats <- h4_analysis_data %>%
+    group_by(left_party_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        left_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Højreorienteret parti, ingen grønne i parlament",
+        left_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Højreorienteret parti, grønne i parlament",
+        left_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Venstreorienteret parti, ingen grønne i parlament",
+        left_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Venstreorienteret parti, grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel10 <- kable(h4_stats,
+                  caption = "Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier",
+                  format = "markdown")
+  writeLines(tabel10, "Deskriptiv Statistik/tabel10_h4_stats.md")
+  
+
+ 
+}
+
+# H5: Store partier
+if(exists("h5_analysis_data")) {
+  h5_stats <- h5_analysis_data %>%
+    group_by(large_party_lag1, lagged_i_parlament) %>%
+    summarise(
+      Antal_obs = n(),
+      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+    ) %>%
+    mutate(
+      Gruppe = case_when(
+        large_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Lille parti, ingen grønne i parlament",
+        large_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Lille parti, grønne i parlament",
+        large_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Stort parti, ingen grønne i parlament",
+        large_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Stort parti, grønne i parlament",
+        TRUE ~ "Ukendt"
+      )
+    ) %>%
+    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+  
+  tabel11 <- kable(h5_stats,
+                  caption = "Tabel A11: Deskriptiv statistik for H5 - Store partier",
+                  format = "markdown")
+  writeLines(tabel11, "Deskriptiv Statistik/tabel11_h5_stats.md")
+
+}
+  
+
+# 11. Samlet tabel -----
+# Lav en samlet dokument med alle tabeller
+tabeller_samlet <- c(
+  "# Deskriptiv statistik\n\n",
+  "## Tabel A1: Deskriptiv statistik for nøglevariable\n\n",
+  tabel1,
+  "\n\n## Tabel A2: Oversigt over lande i datasættet\n\n",
+  tabel2
+)
+
+if(exists("tabel3")) {
+  tabeller_samlet <- c(tabeller_samlet, 
+                     "\n\n## Tabel A3: Klimapositioner efter partifamilie\n\n",
+                     tabel3)
+}
+
+tabeller_samlet <- c(tabeller_samlet,
+                   "\n\n## Tabel A4: Manglende værdier i nøglevariable\n\n",
+                   tabel4)
+
+if(exists("tabel5")) {
+  tabeller_samlet <- c(tabeller_samlet, 
+                     "\n\n## Tabel A5: Grønne partiers succesrate over tid\n\n",
+                     tabel5)
+}
+
+tabeller_samlet <- c(tabeller_samlet,
+                   "\n\n## Tabel A6: Valggrænser (thresholds) efter land og år\n\n",
+                   tabel6)
+
+# Tilføj de nye tabeller hvis de eksisterer
+if(exists("tabel7")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament\n\n",
+                     tabel7)
+}
+
+if(exists("tabel8")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A8: Deskriptiv statistik for H2 - Højreradikale partier i parlament\n\n",
+                     tabel8)
+}
+
+if(exists("tabel9")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A9: Deskriptiv statistik for H3 - Økonomiske forhold\n\n",
+                     tabel9)
+}
+
+if(exists("tabel9b")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A9b: Deskriptiv statistik for H3 - BNP-vækst\n\n",
+                     tabel9b)
+}
+
+if(exists("tabel10")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier\n\n",
+                     tabel10)
+}
+
+if(exists("tabel11")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A11: Deskriptiv statistik for H5 - Store partier\n\n",
+                     tabel11)
+}
+
+# Gem den opdaterede samlede dokument
+writeLines(tabeller_samlet, "Deskriptiv Statistik/alle_tabeller.md")
+
+# Bekræft at filerne er blevet gemt
+liste_filer <- list.files("Deskriptiv Statistik", full.names = TRUE)
+print(liste_filer)
+
+# Afsluttende besked
+cat("\nDeskriptiv statistik er nu gemt i mappen 'Deskriptiv Statistik'.\n")
+cat("Der er genereret både markdown (.md) og csv-filer samt visualiseringer (.png).\n")
+```
+
