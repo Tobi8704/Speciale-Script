@@ -2087,10 +2087,11 @@ write.csv(missing_stats, "Publisering Deskriptiv Statistik/tabel4_missing_data.c
 
 
 # 5. Grønne partiers succes over tid --------
-# Tjek først at de nødvendige variable findes
-if(all(c("Year", "pervote_samlet", "i_parlament") %in% names(final_dataset))) {
+# Tjek først at de nødvendige variable findes. Year findes ikke som kolonne på
+# final_dataset -- grupperer på edate ligesom stemmeandel_tid i sektion 8.
+if(all(c("edate", "pervote_samlet", "i_parlament") %in% names(final_dataset))) {
   grønne_success_tid <- final_dataset %>%
-    group_by(Year) %>%
+    group_by(edate) %>%
     summarise(
       grønne_partier = sum(!is.na(pervote_samlet)),
       grønne_i_parlament = sum(i_parlament, na.rm = TRUE),
@@ -2308,10 +2309,20 @@ if("large_party_lag1" %in% names(final_dataset)) {
   write.csv(case_distribution_size, "Deskriptiv Statistik/tabel12_case_distribution_size.csv", row.names = FALSE)
 }
 
-if(all(c("Year", "i_parlament") %in% names(final_dataset))) {
+if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
+  # Year isn't a column on final_dataset -- derive it from edate. edate may already
+  # be a Date (from manifestoR) or a character string in "YYYY/MM/DD" format (from
+  # the green party merge), so parse defensively rather than assuming either.
   case_distribution_decade <- final_dataset %>%
-    filter(!is.na(Year)) %>%
-    mutate(Decade = floor(Year / 10) * 10) %>%
+    mutate(
+      Election_Year = if (inherits(edate, "Date")) {
+        lubridate::year(edate)
+      } else {
+        lubridate::year(lubridate::ymd(as.character(edate)))
+      }
+    ) %>%
+    filter(!is.na(Election_Year)) %>%
+    mutate(Decade = floor(Election_Year / 10) * 10) %>%
     group_by(Decade) %>%
     summarise(
       Antal_observationer = n(),
