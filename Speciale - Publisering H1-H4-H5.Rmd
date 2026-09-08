@@ -64,17 +64,23 @@ filter_european_countries <- function(data, country_col = "country_name") {
 }
 
 # Funktion til at udføre robusthedstest med forskellige båndbredder
-run_rdd_robustness <- function(data, 
+run_rdd_robustness <- function(data,
                               outcome_var = "miljø_afhængig",
-                              running_var = "centered_lagged_pervote_samlet", 
+                              running_var = "centered_lagged_pervote_samlet",
                               bw_list = c(1, 1.5, 2, 2.5, 3),
                               polynomials = c(1, 2, 3, 4),
                               cutpoint = 0,
                               covariates = NULL,
+                              cluster_var = "country_election_id",
                               group_label = "") {
-  
+
   # Tom liste til resultater
   all_results <- list()
+
+  # Standard errors are clustered by country-election (default) since the Green
+  # party running variable/treatment is identical for every mainstream party
+  # observed in the same country-election, not independent across observations.
+  cluster_vec <- if (!is.null(cluster_var) && cluster_var %in% names(data)) data[[cluster_var]] else NULL
   
   # Håndtering af kovariater
   if (!is.null(covariates)) {
@@ -121,7 +127,8 @@ run_rdd_robustness <- function(data,
               x = data[[running_var]],
               c = cutpoint,
               p = p,
-              h = bw
+              h = bw,
+              cluster = cluster_vec
             )
           } else {
             # Kør rdrobust med kovariater
@@ -131,7 +138,8 @@ run_rdd_robustness <- function(data,
               c = cutpoint,
               p = p,
               h = bw,
-              covs = covs_matrix
+              covs = covs_matrix,
+              cluster = cluster_vec
             )
           }
           
@@ -172,7 +180,8 @@ run_rdd_robustness <- function(data,
             x = data[[running_var]],
             c = cutpoint,
             p = p,
-            h = NULL   # lader rdrobust selv vælge båndbredde
+            h = NULL,   # lader rdrobust selv vælge båndbredde
+            cluster = cluster_vec
           )
         } else {
           # Kør rdrobust med kovariater
@@ -182,7 +191,8 @@ run_rdd_robustness <- function(data,
             c = cutpoint,
             p = p,
             h = NULL,   # lader rdrobust selv vælge båndbredde
-            covs = covs_matrix
+            covs = covs_matrix,
+            cluster = cluster_vec
           )
         }
         
@@ -298,11 +308,12 @@ dir.create("Publisering Analyse", showWarnings = FALSE)
 dir.create("Publisering Analyse/H1", showWarnings = FALSE)
 
 # 0. For H1 analysis that examines Green Party parliamentary entry effect ----------------
-h1_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
-                                                                 "centered_lagged_pervote_samlet", 
+h1_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
                                                                  "lagged_i_parlament",
-                                                                 "country", 
-                                                                 "edate")]), ]
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
 
 # Check how many observations there are now
 nrow(h1_analysis_data)
@@ -343,7 +354,10 @@ h1_rdd <- rdrobust(
   c = 0,
   p = 1,  # linear polynomial
   kernel = "triangular",
-  bwselect = "mserd"  # MSE-optimal bandwidth
+  bwselect = "mserd",  # MSE-optimal bandwidth
+  # Cluster by country-election: the same Green party running variable/treatment
+  # value is shared by every mainstream party observed in the same election.
+  cluster = h1_analysis_data$country_election_id
 )
 
 # Print summary
@@ -845,12 +859,13 @@ dir.create("Publisering Analyse/H4", showWarnings = FALSE)
 
 # 0. Klargør Data ----------------
 # For H4 analysis examining party ideology moderation
-h4_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
-                                                                 "centered_lagged_pervote_samlet", 
+h4_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
                                                                  "lagged_i_parlament",
                                                                  "left_party_lag1",
-                                                                 "country", 
-                                                                 "edate")]), ]
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
 
 # Check how many observations there are now
 nrow(h4_analysis_data)
@@ -904,7 +919,8 @@ h4_rdd_right <- rdrobust(
     c = 0,
     p = 1,
     kernel = "triangular",
-    bwselect = "mserd"
+    bwselect = "mserd",
+    cluster = clean_data_right_party$country_election_id
   )
   summary(h4_rdd_right)
 
@@ -936,7 +952,8 @@ h4_rdd_left <- rdrobust(
     c = 0,
     p = 1,
     kernel = "triangular",
-    bwselect = "mserd"
+    bwselect = "mserd",
+    cluster = clean_data_left_party$country_election_id
   )
   summary(h4_rdd_left)
 
@@ -1048,12 +1065,13 @@ dir.create("Publisering Analyse/H5", showWarnings = FALSE)
 
 # 0. Klargør Data ----------------
 # For H5 analysis examining party size moderation
-h5_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig", 
-                                                                 "centered_lagged_pervote_samlet", 
+h5_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
                                                                  "lagged_i_parlament",
                                                                  "large_party_lag1",
-                                                                 "country", 
-                                                                 "edate")]), ]
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
 
 nrow(h5_analysis_data)
 
@@ -1107,7 +1125,8 @@ h5_large_rdd <- rdrobust(
     c = 0,
     p = 1,
     kernel = "triangular",
-    bwselect = "mserd"
+    bwselect = "mserd",
+    cluster = large_parties$country_election_id
   )
   summary(h5_large_rdd)
 
@@ -1138,7 +1157,8 @@ h5_small_rdd <- rdrobust(
     c = 0,
     p = 1,
     kernel = "triangular",
-    bwselect = "mserd"
+    bwselect = "mserd",
+    cluster = small_parties$country_election_id
   )
 
 main_results_table_h5_small <- data.frame(
@@ -1285,14 +1305,127 @@ h1_placebo_plot <- plot_placebo_threshold_test(
 ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_placebo_plot.png", plot = h1_placebo_plot, width = 10, height = 6, dpi = 300)
 
 # 1.3 Density Test for H1 (Manipulation Test) ----------------
-# Add McCrary density test
-h1_density_test <- rddensity(h1_analysis_data$centered_lagged_pervote_samlet, c = 0, binoWStep = 0.250, binoW = 0.250)
-h1_density_test_summary <- summary(h1_density_test)
-h1_density_plot <- rdplotdensity(h1_density_test, 
-                               h1_analysis_data$centered_lagged_pervote_samlet,
-                               title = "H1: Density Test of Running Variable")
-summary(h1_density_test)
-ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_density_test.png", plot = h1_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+# Add McCrary/CJM density (manipulation) test. massPoints = TRUE (the rddensity
+# default) already adjusts for repeated/tied values in the running variable, which
+# vote-share data is prone to. A fixed binoW/binoWStep occasionally fails to converge
+# for a given subsample (this happened in exploratory runs, see the EDA script), so
+# the call is wrapped in tryCatch with a histogram fallback rather than silently
+# omitting the manipulation check.
+h1_density_test <- tryCatch(
+  rddensity(h1_analysis_data$centered_lagged_pervote_samlet, c = 0),
+  error = function(e) {
+    warning(paste("rddensity failed for H1:", e$message))
+    NULL
+  }
+)
+
+if (!is.null(h1_density_test)) {
+  h1_density_test_summary <- summary(h1_density_test)
+  print(h1_density_test_summary)
+  h1_density_plot <- rdplotdensity(h1_density_test,
+                                 h1_analysis_data$centered_lagged_pervote_samlet,
+                                 title = "H1: Density Test of Running Variable")
+  ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_density_test.png", plot = h1_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+} else {
+  h1_density_fallback_plot <- ggplot(h1_analysis_data, aes(x = centered_lagged_pervote_samlet)) +
+    geom_histogram(binwidth = 0.25, fill = "steelblue", color = "darkblue", alpha = 0.7) +
+    geom_vline(xintercept = 0, linetype = 2) +
+    theme_minimal() +
+    labs(title = "H1: Histogram of Running Variable (rddensity fallback)",
+         x = "Green Party Vote Share (Centered on Cut-off)", y = "Count")
+  ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_density_test_fallback_histogram.png",
+         plot = h1_density_fallback_plot, width = 10, height = 6, dpi = 300)
+}
+
+# 1.4 Sharp vs. Fuzzy Design Check for H1 ----------------
+# Confirms whether treatment (lagged_i_parlament) is a deterministic function of the
+# running variable crossing the cutoff (centered_lagged_pervote_samlet >= 0). If not
+# -- e.g. because of compensatory seats, coalition-list entry, or multi-tier electoral
+# allocation rules that let a Green party enter parliament without crossing the
+# nominal vote-share threshold, or vice versa -- the design is fuzzy rather than
+# sharp, and the estimand is a fuzzy-RDD LATE among compliers rather than a sharp ITT.
+h1_analysis_data <- h1_analysis_data %>%
+  mutate(predicted_treatment = as.numeric(centered_lagged_pervote_samlet >= 0))
+
+sharp_fuzzy_crosstab <- table(
+  Predicted = h1_analysis_data$predicted_treatment,
+  Actual = h1_analysis_data$lagged_i_parlament
+)
+print(sharp_fuzzy_crosstab)
+
+n_mismatches <- sum(h1_analysis_data$predicted_treatment != h1_analysis_data$lagged_i_parlament)
+pct_mismatches <- round(100 * n_mismatches / nrow(h1_analysis_data), 2)
+
+cat("Sharp-vs-fuzzy check: ", n_mismatches, " of ", nrow(h1_analysis_data),
+    " observations (", pct_mismatches, "%) have parliamentary-entry status that ",
+    "does not match crossing the electoral-threshold cutoff.\n", sep = "")
+cat(if (n_mismatches == 0) {
+  "=> Design is SHARP: crossing the threshold perfectly determines parliamentary entry.\n"
+} else {
+  "=> Design is FUZZY: crossing the threshold does not perfectly determine parliamentary entry. Report the fuzzy-RDD estimate (h1_rdd_fuzzy below) alongside the sharp estimate, and interpret it as a LATE among compliers.\n"
+})
+
+sharp_fuzzy_table <- knitr::kable(
+  as.data.frame(sharp_fuzzy_crosstab),
+  caption = "Table: Predicted vs. Actual Parliamentary Entry (Sharp-vs-Fuzzy Check)"
+)
+writeLines(sharp_fuzzy_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_sharp_fuzzy_check.md"))
+print(sharp_fuzzy_table)
+write.csv(as.data.frame(sharp_fuzzy_crosstab), "Publisering Analyse/H1/Publisering h1_sharp_fuzzy_check.csv", row.names = FALSE)
+
+if (n_mismatches > 0) {
+  h1_rdd_fuzzy <- rdrobust(
+    y = h1_analysis_data$miljø_afhængig,
+    x = h1_analysis_data$centered_lagged_pervote_samlet,
+    fuzzy = h1_analysis_data$lagged_i_parlament,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd",
+    cluster = h1_analysis_data$country_election_id
+  )
+  summary(h1_rdd_fuzzy)
+}
+
+# 1.5 Covariate Balance Tests for H1 ----------------
+# Standard RDD diagnostic: pre-treatment covariates should show no discontinuity at
+# the cutoff. GDP/unemployment/inflation are loaded earlier in the pipeline (Data
+# skabelse.Rmd, section 1.3) but not currently merged into final_dataset, so balance
+# is tested here on the covariates that are actually available on final_dataset.
+balance_covariates <- c("rile_lowe", "pervote_main", "absseat")
+balance_covariates <- balance_covariates[balance_covariates %in% names(h1_analysis_data)]
+
+balance_results <- lapply(balance_covariates, function(covariate) {
+  bal_data <- h1_analysis_data[complete.cases(h1_analysis_data[, c(covariate, "centered_lagged_pervote_samlet", "country_election_id")]), ]
+  bal_rd <- rdrobust(
+    y = bal_data[[covariate]],
+    x = bal_data$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    kernel = "triangular",
+    bwselect = "mserd",
+    cluster = bal_data$country_election_id
+  )
+  data.frame(
+    Covariate = covariate,
+    Estimate  = round(bal_rd$Estimate[1], 3),
+    StdError  = round(bal_rd$se[1], 3),
+    pvalue    = round(bal_rd$pv[1], 3),
+    N         = sum(bal_rd$N_h)
+  )
+})
+
+balance_table_df <- do.call(rbind, balance_results)
+print(balance_table_df)
+
+balance_table <- knitr::kable(
+  balance_table_df,
+  caption = "Table: Covariate Balance at the Cutoff (pre-treatment covariates should show no significant discontinuity)",
+  col.names = c("Covariate", "Estimate", "Std. Error", "p-value", "N")
+)
+writeLines(balance_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_balance_table.md"))
+print(balance_table)
+write.csv(balance_table_df, "Publisering Analyse/H1/Publisering h1_balance_table.csv", row.names = FALSE)
 
 # ============================================================================
 # 4. H4: PARTY IDEOLOGY EFFECT
@@ -1642,6 +1775,152 @@ summary(h5_small_density_test)
 ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_density.png", plot = h5_large_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_density.png", plot = h5_small_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 
+```
+
+# ============================================================================
+# 6. CULTURAL LIBERALISM OUTCOME (SECOND ISSUE DIMENSION)
+# ============================================================================
+# Green parties are not single-issue environmental parties -- they also mobilize on
+# cultural liberalism, pro-immigration positions, and minority rights. This section
+# re-estimates H1/H4/H5 with kultur_afhaengig (MARPOR per607/per608 multiculturalism
+# log-ratio, see Data skabelse.Rmd) as the outcome instead of miljø_afhængig, so the
+# environmental effect can be directly compared against a non-environmental Green
+# party issue dimension. The running variable, cutoff, clustering, and sample
+# construction are identical to H1/H4/H5 above; the manipulation/density test and
+# sharp-vs-fuzzy check from section 1.3-1.4 apply unchanged since they depend only on
+# the running variable, not the outcome, so they are not repeated here.
+
+```{r cultural_analysis}
+dir.create("Publisering Analyse/Cultural", showWarnings = FALSE)
+
+# H1-equivalent: main effect on cultural liberalism -----------------------
+h1_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kultur_afhaengig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+
+h1_rdd_cultural <- rdrobust(
+  y = h1_cultural_analysis_data$kultur_afhaengig,
+  x = h1_cultural_analysis_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd",
+  cluster = h1_cultural_analysis_data$country_election_id
+)
+summary(h1_rdd_cultural)
+
+main_results_cultural <- data.frame(
+  Outcome = "Cultural Liberalism Position",
+  Bandwidth = round(h1_rdd_cultural$bws[1, 1], 3),
+  LATE = round(h1_rdd_cultural$Estimate[1], 3),
+  StdError = round(h1_rdd_cultural$se[1], 3),
+  pvalue = round(h1_rdd_cultural$pv[1], 3),
+  CI_Lower = round(h1_rdd_cultural$ci[1, 1], 3),
+  CI_Upper = round(h1_rdd_cultural$ci[1, 2], 3)
+)
+main_results_cultural_table <- knitr::kable(main_results_cultural,
+                                  caption = "Main RDD Results for H1 - Cultural Liberalism Outcome",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+writeLines(main_results_cultural_table, file.path(getwd(), "Publisering Analyse/Cultural/Publisering h1_cultural_main_results.md"))
+print(main_results_cultural_table)
+write.csv(main_results_cultural, "Publisering Analyse/Cultural/Publisering h1_cultural_main_results.csv", row.names = FALSE)
+
+# Robustness across bandwidths/polynomials, same specification as H1 section 3.1
+results_df_h1_cultural <- run_rdd_robustness(
+  data = h1_cultural_analysis_data,
+  outcome_var = "kultur_afhaengig",
+  running_var = "centered_lagged_pervote_samlet",
+  bw_list = c(1, 1.5, 2, 2.5, 3, 3.5, 4),
+  polynomials = c(1, 2, 3, 4),
+  covariates = c("country", "edate"),
+  group_label = "H1 Cultural"
+)
+selected_columns <- c("Group", "Polynomial", "Bandwidth", "LATE", "p_value", "StdErr", "N_left_of_c", "N_right_of_c")
+write.csv(results_df_h1_cultural[, selected_columns], "Publisering Analyse/Cultural/Publisering h1_cultural_robustness_table.csv", row.names = FALSE)
+
+# H4-equivalent: left/right moderation on cultural liberalism -------------
+h4_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kultur_afhaengig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "left_party_lag1",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+clean_data_right_party_cultural <- subset(h4_cultural_analysis_data, left_party_lag1 == 0)
+clean_data_left_party_cultural <- subset(h4_cultural_analysis_data, left_party_lag1 == 1)
+
+h4_rdd_right_cultural <- rdrobust(
+    y = clean_data_right_party_cultural$kultur_afhaengig,
+    x = clean_data_right_party_cultural$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = clean_data_right_party_cultural$country_election_id
+  )
+h4_rdd_left_cultural <- rdrobust(
+    y = clean_data_left_party_cultural$kultur_afhaengig,
+    x = clean_data_left_party_cultural$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = clean_data_left_party_cultural$country_election_id
+  )
+
+h4_cultural_results <- data.frame(
+  Group = c("Right-Wing Parties", "Left-Wing Parties"),
+  LATE = round(c(h4_rdd_right_cultural$Estimate[1], h4_rdd_left_cultural$Estimate[1]), 3),
+  StdError = round(c(h4_rdd_right_cultural$se[1], h4_rdd_left_cultural$se[1]), 3),
+  pvalue = round(c(h4_rdd_right_cultural$pv[1], h4_rdd_left_cultural$pv[1]), 3)
+)
+print(h4_cultural_results)
+write.csv(h4_cultural_results, "Publisering Analyse/Cultural/Publisering h4_cultural_results.csv", row.names = FALSE)
+
+# H5-equivalent: large/small party moderation on cultural liberalism ------
+h5_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kultur_afhaengig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "large_party_lag1",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+large_parties_cultural <- subset(h5_cultural_analysis_data, large_party_lag1 == 1)
+small_parties_cultural <- subset(h5_cultural_analysis_data, large_party_lag1 == 0)
+
+h5_rdd_large_cultural <- rdrobust(
+    y = large_parties_cultural$kultur_afhaengig,
+    x = large_parties_cultural$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = large_parties_cultural$country_election_id
+  )
+h5_rdd_small_cultural <- rdrobust(
+    y = small_parties_cultural$kultur_afhaengig,
+    x = small_parties_cultural$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = small_parties_cultural$country_election_id
+  )
+
+h5_cultural_results <- data.frame(
+  Group = c("Large Parties", "Small Parties"),
+  LATE = round(c(h5_rdd_large_cultural$Estimate[1], h5_rdd_small_cultural$Estimate[1]), 3),
+  StdError = round(c(h5_rdd_large_cultural$se[1], h5_rdd_small_cultural$se[1]), 3),
+  pvalue = round(c(h5_rdd_large_cultural$pv[1], h5_rdd_small_cultural$pv[1]), 3)
+)
+print(h5_cultural_results)
+write.csv(h5_cultural_results, "Publisering Analyse/Cultural/Publisering h5_cultural_results.csv", row.names = FALSE)
+
+# Side-by-side comparison: environmental vs. cultural-liberalism main effect ----
+domain_comparison <- data.frame(
+  Domain = c("Environmental (miljø_afhængig)", "Cultural Liberalism (kultur_afhaengig)"),
+  LATE = round(c(h1_rdd$Estimate[1], h1_rdd_cultural$Estimate[1]), 3),
+  StdError = round(c(h1_rdd$se[1], h1_rdd_cultural$se[1]), 3),
+  pvalue = round(c(h1_rdd$pv[1], h1_rdd_cultural$pv[1]), 3),
+  N = c(sum(h1_rdd$N_h), sum(h1_rdd_cultural$N_h))
+)
+domain_comparison_table <- knitr::kable(domain_comparison,
+  caption = "Table: Green Party Parliamentary Entry Effect Across Issue Domains")
+writeLines(domain_comparison_table, file.path(getwd(), "Publisering Analyse/Cultural/Publisering domain_comparison.md"))
+print(domain_comparison_table)
+write.csv(domain_comparison, "Publisering Analyse/Cultural/Publisering domain_comparison.csv", row.names = FALSE)
 ```
 
 
@@ -2014,7 +2293,60 @@ if(exists("h5_analysis_data")) {
   writeLines(tabel11, "Deskriptiv Statistik/tabel11_h5_stats.md")
 
 }
-  
+
+# 10b. Case distribution: small vs. large mainstream parties, and over time ------
+# Addresses reviewer question on case distribution: how many small vs. large
+# mainstream parties are in the data, and how Green party parliamentary entry is
+# distributed over the sample's time span (1970s-2020s).
+if("large_party_lag1" %in% names(final_dataset)) {
+  case_distribution_size <- final_dataset %>%
+    filter(!is.na(large_party_lag1)) %>%
+    mutate(Størrelse = ifelse(large_party_lag1 == 1, "Stort mainstreamparti", "Lille mainstreamparti")) %>%
+    group_by(Størrelse) %>%
+    summarise(
+      Antal_partiobservationer = n(),
+      Antal_unikke_partier = n_distinct(party),
+      .groups = "drop"
+    )
+
+  tabel12 <- kable(case_distribution_size,
+                 caption = "Tabel A12: Antal store vs. små mainstreampartier i datasættet",
+                 format = "markdown")
+  writeLines(tabel12, "Deskriptiv Statistik/tabel12_case_distribution_size.md")
+  write.csv(case_distribution_size, "Deskriptiv Statistik/tabel12_case_distribution_size.csv", row.names = FALSE)
+}
+
+if(all(c("Year", "i_parlament") %in% names(final_dataset))) {
+  case_distribution_decade <- final_dataset %>%
+    filter(!is.na(Year)) %>%
+    mutate(Decade = floor(Year / 10) * 10) %>%
+    group_by(Decade) %>%
+    summarise(
+      Antal_observationer = n(),
+      Antal_lande = n_distinct(countryname),
+      Grønne_i_parlament_andel = round(mean(i_parlament, na.rm = TRUE), 3),
+      .groups = "drop"
+    )
+
+  tabel13 <- kable(case_distribution_decade,
+                 caption = "Tabel A13: Antal observationer og grønne partiers parlaments-andel efter årti",
+                 col.names = c("Årti", "Antal observationer", "Antal lande", "Andel grønne i parlament"),
+                 format = "markdown")
+  writeLines(tabel13, "Deskriptiv Statistik/tabel13_case_distribution_decade.md")
+  write.csv(case_distribution_decade, "Deskriptiv Statistik/tabel13_case_distribution_decade.csv", row.names = FALSE)
+}
+
+# Note on formation-to-parliament-entry lag (reviewer question): this cannot be
+# computed from the current data. MARPOR/ParlGov coverage begins in the early
+# 1970s for most countries, so for any Green party first observed at the start of
+# the sample we cannot tell whether that observation is close to the party's actual
+# founding or the party already existed for years beforehand (left-censoring) -- no
+# founding-date variable exists in either MARPOR or ParlGov for this purpose. This
+# is documented here rather than computed with placeholder/incomplete dates.
+cat("\nNote: Green party formation-to-parliament-entry lag is not computed --",
+    "MARPOR/ParlGov data start ~1972, so founding dates before the sample window",
+    "are left-censored and unknown for parties already active at that point.\n")
+
 
 # 11. Samlet tabel -----
 # Lav en samlet dokument med alle tabeller
@@ -2081,6 +2413,18 @@ if(exists("tabel11")) {
   tabeller_samlet <- c(tabeller_samlet,
                      "\n\n## Tabel A11: Deskriptiv statistik for H5 - Store partier\n\n",
                      tabel11)
+}
+
+if(exists("tabel12")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A12: Antal store vs. små mainstreampartier\n\n",
+                     tabel12)
+}
+
+if(exists("tabel13")) {
+  tabeller_samlet <- c(tabeller_samlet,
+                     "\n\n## Tabel A13: Case-fordeling efter årti\n\n",
+                     tabel13)
 }
 
 # Gem den opdaterede samlede dokument
