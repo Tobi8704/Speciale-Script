@@ -153,7 +153,7 @@ jump.plot_grøn <- function( data , force.var , yvar , seat.identifier , polynom
 
 
 rd.core_grøn <- function( data , force.var , yvar , seat.identifier , fixed.effects 
-                     , clust1 , clust2 , polynomial , bws ){
+                          , clust1 , clust2 , polynomial , bws ){
   i <- polynomial
   data <- as.data.frame( data )
   data <- data[ , c( yvar , force.var , fixed.effects , seat.identifier , clust1 , clust2 )]
@@ -206,21 +206,21 @@ rd.core_grøn <- function( data , force.var , yvar , seat.identifier , fixed.eff
 
 
 rd.base_grøn <- function( data , force.var , yvar , seat.identifier , fixed.effects 
-                     , clust1 , clust2 , polynomials , bws ){
+                          , clust1 , clust2 , polynomials , bws ){
   data <- as.data.frame( data )
   data <- data[ , c( force.var , yvar , seat.identifier , fixed.effects , clust1 , clust2 )]
   data <- na.omit( data )
   
   for ( i in polynomials ){
     coef <- rd.core_grøn( data = data 
-                     , force.var = force.var 
-                     , yvar = yvar
-                     , seat.identifier = seat.identifier 
-                     , fixed.effects = fixed.effects 
-                     , clust1 = clust1 
-                     , clust2 = clust2 
-                     , polynomial = i 
-                     , bws = NULL )
+                          , force.var = force.var 
+                          , yvar = yvar
+                          , seat.identifier = seat.identifier 
+                          , fixed.effects = fixed.effects 
+                          , clust1 = clust1 
+                          , clust2 = clust2 
+                          , polynomial = i 
+                          , bws = bws )
     coef <- as.data.frame( t ( coef$coef[ 2 ,  , 1 ] ))
     if( i > 2 ){
       coef$IK_BW <- 'global'
@@ -229,11 +229,12 @@ rd.base_grøn <- function( data , force.var , yvar , seat.identifier , fixed.eff
       Nright <- as.character( nrow( subset( data , data[ , force.var ] >= 0 )))
     }
     if( i <= 2 & !is.null( bws )){
-      coef$IK_BW <- bws
+      h <- bws
+      coef$IK_BW <- h
       coef$IK_BW <- sprintf( '%.3f' , round( coef$IK_BW , 3 ))
       coef$Estimation <- 'Non-Parametric'
-      coef$Nleft <- as.character( nrow( subset( data.cut , data.cut[ , force.var ] >= h * -1 &  data.cut[ , force.var ] < 0 )))
-      coef$Nright <- as.character( nrow( subset( data.cut , data.cut[ , force.var ] <= h &  data.cut[ , force.var ] >= 0 )))
+      Nleft <- as.character( nrow( subset( data , data[ , force.var ] >= h * -1 &  data[ , force.var ] < 0 )))
+      Nright <- as.character( nrow( subset( data , data[ , force.var ] <= h &  data[ , force.var ] >= 0 )))
     }
     if( i <= 2  & is.null( bws )){
       h <- rdd::IKbandwidth( X = data[ , force.var ] , Y = data[ , yvar ]
