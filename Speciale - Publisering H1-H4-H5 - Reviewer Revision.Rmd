@@ -319,14 +319,14 @@ h1_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhæ
 nrow(h1_analysis_data)
 
 # Compare with original and clean_data
-cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
-cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
-cat("Rows in clean_data:", nrow(clean_data), "\n")
+#cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
+#cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
+#cat("Rows in clean_data:", nrow(clean_data), "\n")
 
 # Compare with original and clean_data
-cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
-cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
-cat("Rows in clean_data:", nrow(clean_data), "\n")
+#cat("Original rows in final_dataset:", nrow(final_dataset), "\n")
+#cat("Rows in h1_analysis_data:", nrow(h1_analysis_data), "\n")
+#cat("Rows in clean_data:", nrow(clean_data), "\n")
 
 # 1. VISUAL INSPECTION OF THE DISCONTINUITY ----------------
 
@@ -942,7 +942,7 @@ main_results_table_h4_right <- knitr::kable(main_results_table_h4_right,
                                                "p-value", "95% CI Lower", "95% CI Upper"))
 
 # Save the table to a file
-writeLines(main_results_table_h4_right, file.path(getwd(), "Analyse/H4/h4_right_main_results.md"))
+writeLines(main_results_table_h4_right, file.path(getwd(), "Publisering Analyse/H4/h4_right_main_results.md"))
 print(main_results_table_h4_right)
 write.csv(main_results_table_h4_right, "Publisering Analyse/H4/Publisering h4_right_main_results.csv", row.names = FALSE)  
 
@@ -975,7 +975,7 @@ main_results_table_h4_left <- knitr::kable(main_results_table_h4_left,
                                                "p-value", "95% CI Lower", "95% CI Upper"))
 
 # Save the table to a file
-writeLines(main_results_table_h4_left, file.path(getwd(), "Analyse/H4/h4_left_main_results.md"))
+writeLines(main_results_table_h4_left, file.path(getwd(), "Publisering Analyse/H4/h4_left_main_results.md"))
 print(main_results_table_h4_left)
 write.csv(main_results_table_h4_left, "Publisering Analyse/H4/Publisering h4_left_main_results.csv", row.names = FALSE)  
 
@@ -1280,7 +1280,7 @@ h1_stability_plot  <- create_coefficient_stability_plot(
   title = "H1: When green parties enter parliament, Environmental Focus changes"
 )
 
-ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_stability_plot.png", plot = h1_stability_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_stability_plot.png", plot = h1_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
 pdf("Publisering Robusthedstests/H1 tests - Appendiks/Publisering h1_stability_plot.pdf", width = 10, height = 6)
 print(h1_stability_plot)
@@ -1437,7 +1437,7 @@ dir.create("Publisering Robusthedstests", showWarnings = FALSE)
 dir.create("Publisering Robusthedstests/H4 tests - Appendiks", showWarnings = FALSE)
 
 # 2.2 Coefficient Stability Plots for H4 ----------------
-left_party_stability_plot  <- create_coefficient_stability_plot(
+h4_left_party_stability_plot  <- create_coefficient_stability_plot(
   data = clean_data_left_party,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -1447,7 +1447,7 @@ left_party_stability_plot  <- create_coefficient_stability_plot(
   title = "H4: Effect on Left-wing Parties"
 )
 
-right_party_stability_plot  <- create_coefficient_stability_plot(
+h4_right_party_stability_plot  <- create_coefficient_stability_plot(
   data = clean_data_right_party,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -1457,9 +1457,9 @@ right_party_stability_plot  <- create_coefficient_stability_plot(
   title = "H4: Effect on Right-wing Parties"
 )
 
-ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_party_stability.png", plot = h4_left_placebo_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_party_stability.png", plot = h4_left_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
-ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_party_stability.png", plot = h4_right_placebo_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_party_stability.png", plot = h4_right_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
 # 2.3 Comparison of RRP Effects Across Polynomials ----------------
 h4_comparison_plot_p1_ideology <- compare_coefficient_stability(
@@ -1631,7 +1631,7 @@ dir.create("Publisering Robusthedstests", showWarnings = FALSE)
 dir.create("Publisering Robusthedstests/H5 tests - Appendiks", showWarnings = FALSE)
 
 # 2.2 Coefficient Stability Plots for H5 ----------------
-large_party_stability_plot  <- create_coefficient_stability_plot(
+h5_large_party_stability_plot  <- create_coefficient_stability_plot(
   data = large_parties,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -1641,7 +1641,7 @@ large_party_stability_plot  <- create_coefficient_stability_plot(
   title = "H5: Effect on Large Parties"
 )
 
-small_party_stability_plot  <- create_coefficient_stability_plot(
+h5_small_party_stability_plot  <- create_coefficient_stability_plot(
   data = small_parties,
   outcome_var = "miljø_afhængig",
   running_var = "centered_lagged_pervote_samlet",
@@ -1651,9 +1651,9 @@ small_party_stability_plot  <- create_coefficient_stability_plot(
   title = "H5: Effect on Small Parties"
 )
 
-ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_party_stability_plot.png", plot = h5_large_party_stability_plot, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_party_stability_plot.png", plot = h5_large_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
-ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_party_stability.png", plot = h5_small_party_stability, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_party_stability_plot.png", plot = h5_small_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
 # 2.3 Comparison of RRP Effects Across Polynomials ----------------
 h5_comparison_plot_p1_size <- compare_coefficient_stability(
@@ -1931,9 +1931,6 @@ dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
 
 # 1. Basal deskriptiv statistik for nøglevariable ----------------
 
-# rrp_i_p_lag1 (radical-right-party-in-parliament) belonged to a hypothesis that is
-# no longer part of this analysis and is not a column on final_dataset, so it's
-# dropped from this table rather than left in to reference a nonexistent variable.
 stats_tabel <- data.frame(
   Variabel = c(
     "Klimaposition (miljø_afhængig)",
@@ -2009,11 +2006,10 @@ land_stats <- final_dataset %>%
   group_by(countryname) %>%
   summarise(
     Antal_obs = n(),
-    Første_år = min(Year, na.rm = TRUE),
-    Sidste_år = max(Year, na.rm = TRUE),
+    Første_år = min(edate, na.rm = TRUE),
+    Sidste_år = max(edate, na.rm = TRUE),
     Antal_partier = n_distinct(party),
     Grønne_i_parlament = sum(lagged_i_parlament, na.rm = TRUE),
-    Højreradikale_i_parlament = sum(rrp_i_p_lag1, na.rm = TRUE),
     Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3)
   ) %>%
   arrange(desc(Antal_obs))
@@ -2149,14 +2145,14 @@ ggsave("Publisering Deskriptiv Statistik/figur2_klimaposition_efter_land.png", p
 # 8. Grønne partiers stemmeandel over tid -----------
 # Beregner gennemsnitlig stemmeandel for grønne partier pr. år
 stemmeandel_tid <- final_dataset %>%
-  group_by(Year) %>%
+  group_by(edate) %>%
   summarise(
     gns_stemmeandel = mean(lagged_pervote_samlet, na.rm = TRUE),
     median_stemmeandel = median(lagged_pervote_samlet, na.rm = TRUE)
   ) %>%
   filter(!is.na(gns_stemmeandel))
 
-p3 <- ggplot(stemmeandel_tid, aes(x = Year)) +
+p3 <- ggplot(stemmeandel_tid, aes(x = edate)) +
   geom_line(aes(y = gns_stemmeandel), size = 1, color = "darkgreen") +
   geom_line(aes(y = median_stemmeandel), size = 1, color = "green", linetype = "dashed") +
   labs(
