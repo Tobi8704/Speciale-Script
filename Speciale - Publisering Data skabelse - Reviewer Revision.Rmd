@@ -340,15 +340,20 @@ jump_plot_cutoff <- function(data, force_var, y_var, group_var, polynomial=1, wi
 mp_setapikey(key = "c1f14c8fb84af448bfdb511afd7f415e")
 mpds <- mp_maindataset(version = "MPDS2024a")
 
-# mp_maindataset() does not return per416_2 (the "sustainability" sub-category of
-# per416 used as an alternative outcome later, e.g. section 3.2 of the H1 analysis).
-# Merge it in from the static MPDS2024a export included in the repo, keyed on the
-# same identifiers manifestoR uses (country/date/party uniquely identify a manifesto).
-mpds_static_per416_2 <- read_csv("MPDataset_MPDS2024a.csv") %>%
-  dplyr::select(country, date, party, per416_2)
+# per416_2 (the "sustainability" sub-category of per416, used as an alternative
+# outcome later, e.g. section 3.2 of the H1 analysis) ends up missing from
+# final_dataset in past runs of this pipeline. Only backfill it from the static
+# MPDS2024a export if mp_maindataset() genuinely did not return it for this API
+# version -- joining it in unconditionally would collide with an existing
+# per416_2 column and get silently renamed to per416_2.x/per416_2.y by dplyr,
+# which is the same failure mode this is meant to fix.
+if (!"per416_2" %in% names(mpds)) {
+  mpds_static_per416_2 <- read_csv("MPDataset_MPDS2024a.csv") %>%
+    dplyr::select(country, date, party, per416_2)
 
-mpds <- mpds %>%
-  dplyr::left_join(mpds_static_per416_2, by = c("country", "date", "party"))
+  mpds <- mpds %>%
+    dplyr::left_join(mpds_static_per416_2, by = c("country", "date", "party"))
+}
 
 # Load election and party data
 view_election <- read_csv("view_election.csv")
@@ -505,6 +510,13 @@ full_dataset <- full_dataset %>%
 
 # Calculate Lowe's RILE score
 full_dataset <- calculate_rile_lowe(full_dataset)
+
+# Safety net: if per416_2 was duplicated by an earlier merge and got renamed to
+# per416_2.x/per416_2.y (rather than being genuinely missing), recover it under its
+# plain name here instead of silently losing it.
+if (!"per416_2" %in% names(full_dataset) && "per416_2.x" %in% names(full_dataset)) {
+  full_dataset <- full_dataset %>% dplyr::rename(per416_2 = per416_2.x)
+}
 
 # Select final columns and remove duplicates
 final_dataset <- full_dataset %>%
