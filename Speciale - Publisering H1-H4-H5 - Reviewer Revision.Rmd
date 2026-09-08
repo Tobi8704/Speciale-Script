@@ -1931,12 +1931,14 @@ dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
 
 # 1. Basal deskriptiv statistik for nøglevariable ----------------
 
+# rrp_i_p_lag1 (radical-right-party-in-parliament) belonged to a hypothesis that is
+# no longer part of this analysis and is not a column on final_dataset, so it's
+# dropped from this table rather than left in to reference a nonexistent variable.
 stats_tabel <- data.frame(
   Variabel = c(
     "Klimaposition (miljø_afhængig)",
     "Grønne partiers stemmeandel (centered_lagged_pervote_samlet)",
     "Grønne partier i parlament (lagged_i_parlament)",
-    "Højreradikale partier i parlament (rrp_i_p_lag1)",
     "Venstreorienteret parti (left_party_lag1)",
     "Stort parti (large_party_lag1)"
   ),
@@ -1944,7 +1946,6 @@ stats_tabel <- data.frame(
     mean(final_dataset$miljø_afhængig, na.rm = TRUE),
     mean(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     mean(final_dataset$lagged_i_parlament, na.rm = TRUE),
-    mean(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
     mean(final_dataset$left_party_lag1, na.rm = TRUE),
     mean(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
@@ -1952,7 +1953,6 @@ stats_tabel <- data.frame(
     median(final_dataset$miljø_afhængig, na.rm = TRUE),
     median(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     median(final_dataset$lagged_i_parlament, na.rm = TRUE),
-    median(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
     median(final_dataset$left_party_lag1, na.rm = TRUE),
     median(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
@@ -1960,7 +1960,6 @@ stats_tabel <- data.frame(
     sd(final_dataset$miljø_afhængig, na.rm = TRUE),
     sd(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     sd(final_dataset$lagged_i_parlament, na.rm = TRUE),
-    sd(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
     sd(final_dataset$left_party_lag1, na.rm = TRUE),
     sd(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
@@ -1968,7 +1967,6 @@ stats_tabel <- data.frame(
     min(final_dataset$miljø_afhængig, na.rm = TRUE),
     min(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     min(final_dataset$lagged_i_parlament, na.rm = TRUE),
-    min(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
     min(final_dataset$left_party_lag1, na.rm = TRUE),
     min(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
@@ -1976,7 +1974,6 @@ stats_tabel <- data.frame(
     max(final_dataset$miljø_afhængig, na.rm = TRUE),
     max(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     max(final_dataset$lagged_i_parlament, na.rm = TRUE),
-    max(final_dataset$rrp_i_p_lag1, na.rm = TRUE),
     max(final_dataset$left_party_lag1, na.rm = TRUE),
     max(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
@@ -1984,7 +1981,6 @@ stats_tabel <- data.frame(
     sum(!is.na(final_dataset$miljø_afhængig)),
     sum(!is.na(final_dataset$centered_lagged_pervote_samlet)),
     sum(!is.na(final_dataset$lagged_i_parlament)),
-    sum(!is.na(final_dataset$rrp_i_p_lag1)),
     sum(!is.na(final_dataset$left_party_lag1)),
     sum(!is.na(final_dataset$large_party_lag1))
   )
