@@ -2165,7 +2165,7 @@ p3 <- ggplot(stemmeandel_tid, aes(x = edate)) +
   theme_minimal()
 
 # Gem plottet
-ggsave("Deskriptiv Statistik/figur3_stemmeandel_over_tid.png", p3, width = 10, height = 6, dpi = 300)
+ggsave("Publisering Deskriptiv Statistik/figur3_stemmeandel_over_tid.png", p3, width = 10, height = 6, dpi = 300)
 
 # 9. Threshold oversigt -----
 # Lav en ren tabel med thresholds uden party-kolonnen
@@ -2183,7 +2183,7 @@ threshold_oversigt <- final_dataset %>%
 print(head(threshold_oversigt))
 
 # Gem som CSV-fil
-write.csv(threshold_oversigt, "Deskriptiv Statistik/threshold_by_country_year.csv", row.names = FALSE)
+write.csv(threshold_oversigt, "Publisering Deskriptiv Statistik/threshold_by_country_year.csv", row.names = FALSE)
 
 # Lav en pæn tabel med knitr
 tabel6 <- kable(threshold_oversigt, 
@@ -2192,7 +2192,7 @@ tabel6 <- kable(threshold_oversigt,
                format = "markdown")
 
 # Gem som markdown-fil
-writeLines(tabel6, "Deskriptiv Statistik/tabel6_threshold_by_country_year.md")
+writeLines(tabel6, "Publisering Deskriptiv Statistik/tabel6_threshold_by_country_year.md")
 
 
 # 10. Deskriptiv statistik for hver hypotese -----
@@ -2223,7 +2223,7 @@ if(exists("h1_analysis_data")) {
   tabel7 <- kable(h1_stats,
                  caption = "Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament",
                  format = "markdown")
-  writeLines(tabel7, "Deskriptiv Statistik/tabel7_h1_stats.md")
+  writeLines(tabel7, "Publisering Deskriptiv Statistik/tabel7_h1_stats.md")
   
 
   
@@ -2253,7 +2253,7 @@ if(exists("h4_analysis_data")) {
   tabel10 <- kable(h4_stats,
                   caption = "Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier",
                   format = "markdown")
-  writeLines(tabel10, "Deskriptiv Statistik/tabel10_h4_stats.md")
+  writeLines(tabel10, "Publisering Deskriptiv Statistik/tabel10_h4_stats.md")
   
 
  
@@ -2283,7 +2283,7 @@ if(exists("h5_analysis_data")) {
   tabel11 <- kable(h5_stats,
                   caption = "Tabel A11: Deskriptiv statistik for H5 - Store partier",
                   format = "markdown")
-  writeLines(tabel11, "Deskriptiv Statistik/tabel11_h5_stats.md")
+  writeLines(tabel11, "Publisering Deskriptiv Statistik/tabel11_h5_stats.md")
 
 }
 
@@ -2305,8 +2305,8 @@ if("large_party_lag1" %in% names(final_dataset)) {
   tabel12 <- kable(case_distribution_size,
                  caption = "Tabel A12: Antal store vs. små mainstreampartier i datasættet",
                  format = "markdown")
-  writeLines(tabel12, "Deskriptiv Statistik/tabel12_case_distribution_size.md")
-  write.csv(case_distribution_size, "Deskriptiv Statistik/tabel12_case_distribution_size.csv", row.names = FALSE)
+  writeLines(tabel12, "Publisering Deskriptiv Statistik/tabel12_case_distribution_size.md")
+  write.csv(case_distribution_size, "Publisering Deskriptiv Statistik/tabel12_case_distribution_size.csv", row.names = FALSE)
 }
 
 if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
@@ -2335,8 +2335,8 @@ if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
                  caption = "Tabel A13: Antal observationer og grønne partiers parlaments-andel efter årti",
                  col.names = c("Årti", "Antal observationer", "Antal lande", "Andel grønne i parlament"),
                  format = "markdown")
-  writeLines(tabel13, "Deskriptiv Statistik/tabel13_case_distribution_decade.md")
-  write.csv(case_distribution_decade, "Deskriptiv Statistik/tabel13_case_distribution_decade.csv", row.names = FALSE)
+  writeLines(tabel13, "Publisering Deskriptiv Statistik/tabel13_case_distribution_decade.md")
+  write.csv(case_distribution_decade, "Publisering Deskriptiv Statistik/tabel13_case_distribution_decade.csv", row.names = FALSE)
 }
 
 # Note on formation-to-parliament-entry lag (reviewer question): this cannot be
@@ -2431,7 +2431,7 @@ if(exists("tabel13")) {
 }
 
 # Gem den opdaterede samlede dokument
-writeLines(tabeller_samlet, "Deskriptiv Statistik/alle_tabeller.md")
+writeLines(tabeller_samlet, "Publisering Deskriptiv Statistik/alle_tabeller.md")
 
 # Bekræft at filerne er blevet gemt
 liste_filer <- list.files("Deskriptiv Statistik", full.names = TRUE)
