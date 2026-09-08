@@ -340,6 +340,16 @@ jump_plot_cutoff <- function(data, force_var, y_var, group_var, polynomial=1, wi
 mp_setapikey(key = "c1f14c8fb84af448bfdb511afd7f415e")
 mpds <- mp_maindataset(version = "MPDS2024a")
 
+# mp_maindataset() does not return per416_2 (the "sustainability" sub-category of
+# per416 used as an alternative outcome later, e.g. section 3.2 of the H1 analysis).
+# Merge it in from the static MPDS2024a export included in the repo, keyed on the
+# same identifiers manifestoR uses (country/date/party uniquely identify a manifesto).
+mpds_static_per416_2 <- read_csv("MPDataset_MPDS2024a.csv") %>%
+  dplyr::select(country, date, party, per416_2)
+
+mpds <- mpds %>%
+  dplyr::left_join(mpds_static_per416_2, by = c("country", "date", "party"))
+
 # Load election and party data
 view_election <- read_csv("view_election.csv")
 view_party <- read_csv("view_party.csv")
@@ -500,8 +510,9 @@ full_dataset <- calculate_rile_lowe(full_dataset)
 final_dataset <- full_dataset %>%
   dplyr::select(
     countryname, edate, country, party, oecdmember, eumember, date, 
-    partyname, partyabbrev, parfam, absseat, per410, per416, per501, per416_2, 
-    threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet, 
+    partyname, partyabbrev, parfam, absseat, per410, per416, per501, per416_2,
+    per607, per608,
+    threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet,
     i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe, pervote_main
   ) %>%
   remove_duplicates(
@@ -526,7 +537,21 @@ final_dataset <- final_dataset %>%
     
     # Create dependent variable: environmental position
     miljø_afhængig = log((per416 + per501 + 0.5) / (per410 + 0.5)),
-    
+
+    # Create second outcome dimension: cultural liberalism / multiculturalism.
+    # Green parties are not single-issue environmental parties (they also mobilize on
+    # cultural liberalism, pro-immigration positions, and minority rights), so this
+    # outcome lets H1/H4/H5 be re-estimated on a non-environmental Green-party issue
+    # dimension for comparison. Same log-ratio construction as miljø_afhængig, using
+    # MARPOR's multiculturalism categories (per607 = positive, per608 = negative).
+    kultur_afhaengig = log((per607 + 0.5) / (per608 + 0.5)),
+
+    # Cluster identifier for RDD standard errors: the Green-party running variable and
+    # treatment status are assigned at the country-election level and are therefore
+    # identical across every mainstream party observed in that same election, so
+    # standard errors must be clustered at this level rather than treated as independent.
+    country_election_id = paste(countryname, edate, sep = "_"),
+
     # Create factor variables for parliament presence
     factor_lagged_i_parlament = factor(
       lagged_i_parlament, 
@@ -562,6 +587,12 @@ final_dataset <- final_dataset %>%
   dplyr::arrange(party, edate) %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(large_party_lag1 = dplyr::lag(`large_party`, n = 1, order_by = edate))
+
+# Lagged large_party_alt (used by the H5 "_old" median-split comparison)
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(large_party_alt_lag1 = dplyr::lag(`large_party_alt`, n = 1, order_by = edate))
 
 # Sortér data efter parti og dato
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
