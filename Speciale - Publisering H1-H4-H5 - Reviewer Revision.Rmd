@@ -426,6 +426,69 @@ print(main_results_table)
 write.csv(main_results_table, "Publisering Analyse/H1/Publisering h1_main_results.csv", row.names = FALSE)  
 
 
+# 2.1 Bandwidth sensitivity plot ----------
+# Shows the H1 LATE (and its Robust bias-corrected CI, Calonico/Cattaneo/Titiunik
+# 2014) across a continuous grid of FIXED bandwidths, rather than relying on a
+# single bandwidth selector. This is the transparent alternative to trying
+# bandwidths one at a time until one crosses a significance threshold: every
+# bandwidth in the grid is plotted together, so the reader can see directly
+# whether the estimate is stable (real signal) or bounces around with the
+# bandwidth choice (fragile/noise) -- following standard RDD practice (e.g.
+# Cattaneo, Idrobo & Titiunik's RDD guide recommends reporting exactly this kind
+# of sensitivity plot instead of a single point estimate).
+h1_bw_grid <- seq(0.5, 4, by = 0.25)
+
+h1_bw_sensitivity <- do.call(rbind, lapply(h1_bw_grid, function(bw) {
+  fit <- rdrobust(
+    y = h1_analysis_data$miljø_afhængig,
+    x = h1_analysis_data$centered_lagged_pervote_samlet,
+    c = 0,
+    p = 1,
+    h = bw,  # fixed bandwidth (not selected) -- swept across the grid
+    kernel = "triangular",
+    cluster = h1_analysis_data$country_election_id
+  )
+  data.frame(
+    Bandwidth = bw,
+    LATE_robust = fit$Estimate[3],
+    CI_Lower_robust = fit$ci[3, 1],
+    CI_Upper_robust = fit$ci[3, 2],
+    LATE_conventional = fit$Estimate[1],
+    N = sum(fit$N_h)
+  )
+}))
+
+# Mark where the two bandwidth SELECTORS (as opposed to the fixed grid above)
+# actually land, for reference on the plot.
+h1_bw_mse <- h1_rdd$bws[1, 1]
+h1_bw_cer <- rdrobust::rdbwselect(
+  y = h1_analysis_data$miljø_afhængig,
+  x = h1_analysis_data$centered_lagged_pervote_samlet,
+  c = 0, kernel = "triangular", bwselect = "cerrd"
+)$bws[1, 1]
+
+h1_bw_sensitivity_plot <- ggplot(h1_bw_sensitivity, aes(x = Bandwidth, y = LATE_robust)) +
+  geom_ribbon(aes(ymin = CI_Lower_robust, ymax = CI_Upper_robust), fill = "steelblue", alpha = 0.2) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_vline(xintercept = h1_bw_mse, linetype = "dotted", color = "darkred") +
+  geom_vline(xintercept = h1_bw_cer, linetype = "dotted", color = "darkgreen") +
+  annotate("text", x = h1_bw_mse, y = max(h1_bw_sensitivity$CI_Upper_robust),
+           label = "MSE-optimal", color = "darkred", angle = 90, vjust = -0.5, size = 3) +
+  annotate("text", x = h1_bw_cer, y = max(h1_bw_sensitivity$CI_Upper_robust),
+           label = "CER-optimal", color = "darkgreen", angle = 90, vjust = -0.5, size = 3) +
+  labs(title = "H1: Bandwidth Sensitivity of the Green Party Entry Effect",
+       subtitle = "Robust bias-corrected LATE (Calonico/Cattaneo/Titiunik 2014) and 95% CI across fixed bandwidths",
+       x = "Bandwidth", y = "LATE (Environmental Position)") +
+  theme_minimal()
+
+print(h1_bw_sensitivity)
+ggsave("Publisering Analyse/H1/h1_bandwidth_sensitivity_plot.png", h1_bw_sensitivity_plot, width = 10, height = 6, dpi = 300)
+write.csv(h1_bw_sensitivity, "Publisering Analyse/H1/Publisering h1_bandwidth_sensitivity.csv", row.names = FALSE)
+print(h1_bw_sensitivity_plot)
+
+
 # 3. ROBUSTNESS CHECKS ----------------
 
 # 3.1 Different Bandwidths and Polynomial Orders ----------
