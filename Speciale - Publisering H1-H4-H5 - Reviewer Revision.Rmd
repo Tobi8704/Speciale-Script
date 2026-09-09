@@ -1515,6 +1515,23 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   model <- fixest::feols(fml, data = d, weights = ~.kw, cluster = cluster_fml)
   ct <- fixest::coeftable(model)
 
+  # Cluster-robust SEs need enough clusters to be trustworthy (conventional rule
+  # of thumb: 20-30+ per clustering dimension) -- with too few, they can become
+  # anti-conservative (artificially small), producing spurious significance. This
+  # was confirmed directly on the H5-small-parties row: only 9 countries / 21
+  # country-elections behind a "***" that rdrobust's own (one-way clustered)
+  # estimate did not support (p=0.204). Report this for every row rather than
+  # checking it by hand each time.
+  n_clusters <- sapply(cluster_vars, function(v) length(unique(d[[v]])))
+  thin_clusters <- names(n_clusters)[n_clusters < 20]
+  if (length(thin_clusters) > 0) {
+    warning(paste0("p=", p, ", bandwidth=", ifelse(is.null(bandwidth), "global", round(bandwidth, 3)),
+                   ": fewer than 20 clusters for ", paste(thin_clusters, collapse = ", "),
+                   " (", paste(paste0(names(n_clusters), "=", n_clusters), collapse = ", "),
+                   ") -- cluster-robust SE for this row may be unreliable (anti-conservative), ",
+                   "do not lean on its significance stars alone."))
+  }
+
   data.frame(
     Approach   = if (is.null(bandwidth)) "Parametric" else "Non-Parametric",
     Polynomial = p,
@@ -1524,7 +1541,10 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
     pvalue     = round(ct[".T", "Pr(>|t|)"], 4),
     N_below_c  = sum(d$.x < 0),
     N_above_c  = sum(d$.x >= 0),
-    Country_FE = if (use_fe) "Yes" else "No (dropped: one-sided groups)"
+    Country_FE = if (use_fe) "Yes" else "No (dropped: one-sided groups)",
+    N_clusters_country = n_clusters[["country"]],
+    N_clusters_country_election = n_clusters[["country_election_id"]],
+    Reliable_SE = if (length(thin_clusters) == 0) "Yes" else "No (too few clusters)"
   )
 }
 
@@ -1567,14 +1587,18 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
   print(tbl)
 
   tbl_display <- tbl[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
-                          "Approach", "N_below_c", "N_above_c", "Country_FE")]
+                          "Approach", "N_below_c", "N_above_c", "Country_FE",
+                          "N_clusters_country", "N_clusters_country_election", "Reliable_SE")]
   tbl_kable <- knitr::kable(
     tbl_display,
     caption = paste0("Table: Mainstream Party Position Change on Environmental Position, ", label,
                       " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by country ",
                       "and country-election, rdrobust MSE-optimal bandwidth; country FE dropped for ",
-                      "Non-Parametric rows where they are collinear with treatment)"),
-    col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE"),
+                      "Non-Parametric rows where they are collinear with treatment; Reliable SE = No means ",
+                      "fewer than 20 clusters on at least one dimension, so the SE/significance stars for ",
+                      "that row should not be trusted at face value)"),
+    col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE",
+                  "N Countries", "N Country-Elections", "Reliable SE"),
     digits = 3
   )
   writeLines(tbl_kable, paste0(out_path_prefix, ".md"))
@@ -1584,55 +1608,17 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
   tbl
 }
 
-# Bandwidth for the two "Non-Parametric" rows (matching Table 2's structure, where
-# p=1 and p=2 share one bandwidth). The `rdd` package (Imbens-Kalyanaraman's own
-# IKbandwidth()) was archived by CRAN on 2025-07-10 and is no longer installable
-# via a normal install.packages()/pacman::p_load() call, so this uses rdrobust's
-# own MSE-optimal bandwidth selector (Calonico-Cattaneo-Titiunik) instead -- the
-# same selector already used for the main H1 rdrobust() estimate above. This is a
-# different (more modern) selector than the literal Imbens-Kalyanaraman (2009)
-# one Abou-Chadi & Krause report, not a drop-in equivalent, so label it as such
-# rather than calling it "IK bandwidth" in the writeup.
-h1_bw_selection <- rdrobust::rdbwselect(
-  y = h1_analysis_data$miljø_afhængig,
-  x = h1_analysis_data$centered_lagged_pervote_samlet,
-  c = 0,
-  kernel = "triangular",
-  bwselect = "mserd"
+# H1's table is built with the same build_ck_style_table() wrapper used for H4/H5
+# below, so all tables stay in sync (bandwidth selection, FE handling, cluster-count
+# diagnostics) rather than duplicating this logic by hand.
+ck_style_table_h1 <- build_ck_style_table(
+  data = h1_analysis_data,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  treatment_var = "lagged_i_parlament",
+  label = "H1",
+  out_path_prefix = "Publisering Analyse/H1/Publisering h1_ck_style_table"
 )
-h1_nonparam_bandwidth <- h1_bw_selection$bws[1, 1]
-cat("H1 MSE-optimal bandwidth (CCT, used for the Non-Parametric rows):",
-    round(h1_nonparam_bandwidth, 3), "\n")
-
-ck_style_table_h1 <- rbind(
-  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 1, bandwidth = h1_nonparam_bandwidth),
-  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 2, bandwidth = h1_nonparam_bandwidth),
-  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 3, bandwidth = NULL),
-  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 4, bandwidth = NULL)
-)
-
-ck_style_table_h1$Signif <- ifelse(ck_style_table_h1$pvalue < 0.01, "***",
-                             ifelse(ck_style_table_h1$pvalue < 0.05, "**",
-                             ifelse(ck_style_table_h1$pvalue < 0.1, "*", "")))
-ck_style_table_h1$LATE_stars <- paste0(ck_style_table_h1$LATE, ck_style_table_h1$Signif)
-
-print(ck_style_table_h1)
-
-ck_style_table_h1_display <- ck_style_table_h1[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
-                                                     "Approach", "N_below_c", "N_above_c", "Country_FE")]
-ck_style_table_h1_kable <- knitr::kable(
-  ck_style_table_h1_display,
-  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by country and country-election, rdrobust MSE-optimal bandwidth; country FE dropped for Non-Parametric rows where they are collinear with treatment, see Country FE column)",
-  col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE"),
-  digits = 3
-)
-writeLines(ck_style_table_h1_kable, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_ck_style_table.md"))
-print(ck_style_table_h1_kable)
-write.csv(ck_style_table_h1, "Publisering Analyse/H1/Publisering h1_ck_style_table.csv", row.names = FALSE)
 
 cat("\nNote: the p=1 (Non-Parametric) row is the reliable comparison point -- it lands",
     "essentially on top of the main rdrobust() H1 estimate above. The p=2 rows (both",
