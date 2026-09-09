@@ -50,6 +50,34 @@ if (file.exists("placebo_tests.R")) {
 ## 1.2 Helper Functions
 
 ```{r helper_functions}
+# Cluster-robust SEs need enough clusters to be trustworthy (conventional rule of
+# thumb: 20-30+); with fewer, they can become anti-conservative (artificially
+# small), inflating apparent significance. Reports the count and warns if thin,
+# for any rdrobust() call clustered on a single variable.
+check_cluster_count <- function(cluster_vec, label, min_clusters = 20) {
+  n <- length(unique(cluster_vec))
+  cat(label, "- unique clusters:", n,
+      if (n < min_clusters) paste0(" (BELOW ", min_clusters, " -- cluster-robust SE may be unreliable)") else "",
+      "\n")
+  if (n < min_clusters) {
+    warning(paste0(label, ": only ", n, " unique clusters (< ", min_clusters,
+                   ") -- do not lean on this model's significance stars alone."))
+  }
+  invisible(n)
+}
+
+# rdrobust() only actually uses observations within its selected bandwidth (bws
+# columns: 1 = left, 2 = right, same convention already used elsewhere in this
+# file for the reported Bandwidth). Checking cluster counts on the full input
+# vector would overstate how many clusters the model actually estimated from.
+check_rdrobust_cluster_count <- function(rdrobust_model, data, running_var, cluster_var, label) {
+  bw_left <- rdrobust_model$bws[1, 1]
+  bw_right <- rdrobust_model$bws[1, 2]
+  x <- data[[running_var]]
+  in_bw <- (x < 0 & x >= -bw_left) | (x >= 0 & x <= bw_right)
+  check_cluster_count(data[[cluster_var]][in_bw], label)
+}
+
 # Function to filter European countries
 filter_european_countries <- function(data, country_col = "country_name") {
   european_countries <- c(
@@ -359,6 +387,8 @@ h1_rdd <- rdrobust(
   # value is shared by every mainstream party observed in the same election.
   cluster = h1_analysis_data$country_election_id
 )
+check_rdrobust_cluster_count(h1_rdd, h1_analysis_data, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H1 main rdrobust")
 
 # Print summary
 summary_h1 <- summary(h1_rdd)
@@ -922,6 +952,8 @@ h4_rdd_right <- rdrobust(
     bwselect = "mserd",
     cluster = clean_data_right_party$country_election_id
   )
+check_rdrobust_cluster_count(h4_rdd_right, clean_data_right_party, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 right-wing rdrobust")
   summary(h4_rdd_right)
 
 # Opret tabel direkte fra h4_left_rdd objektet
@@ -955,6 +987,8 @@ h4_rdd_left <- rdrobust(
     bwselect = "mserd",
     cluster = clean_data_left_party$country_election_id
   )
+check_rdrobust_cluster_count(h4_rdd_left, clean_data_left_party, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 left-wing rdrobust")
   summary(h4_rdd_left)
 
 # Opret tabel direkte fra h4_left_rdd objektet
@@ -1128,6 +1162,8 @@ h5_large_rdd <- rdrobust(
     bwselect = "mserd",
     cluster = large_parties$country_election_id
   )
+check_rdrobust_cluster_count(h5_large_rdd, large_parties, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 large-parties rdrobust")
   summary(h5_large_rdd)
 
 main_results_table_h5_large <- data.frame(
@@ -1160,6 +1196,8 @@ h5_small_rdd <- rdrobust(
     bwselect = "mserd",
     cluster = small_parties$country_election_id
   )
+check_rdrobust_cluster_count(h5_small_rdd, small_parties, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 small-parties rdrobust")
 
 main_results_table_h5_small <- data.frame(
   Outcome = "Climate Position",
@@ -1439,14 +1477,20 @@ write.csv(balance_table_df, "Publisering Analyse/H1/Publisering h1_balance_table
 # fixed effects, fit (a) within an rdrobust MSE-optimal (CCT) bandwidth for
 # polynomials 1-2 ("Non-Parametric") and (b) over the full sample for polynomials
 # 3-4 ("Parametric") -- the same four-row structure as that paper's Table 2.
-# Clustered two-way by country and country_election_id: country captures serial
-# correlation within a country across elections, country_election_id captures the
-# same Green-party running variable/treatment being shared by every mainstream
-# party within one election (the dependence structure the reviewer flagged).
+# Clustered two-way by party and country_election_id, matching Abou-Chadi &
+# Krause's actual code (clust1='party', clust2='edate') rather than an earlier,
+# less precise guess (country + country_election_id): party captures serial
+# correlation from observing the SAME mainstream party repeatedly over time (the
+# correct panel unit here, not the coarser "all parties in a country" grouping),
+# and country_election_id captures the same Green-party running variable/treatment
+# being shared by every mainstream party within one election (the dependence
+# structure the reviewer flagged) -- an improvement on their bare 'edate', which
+# would incorrectly pool different countries' elections that fall on the same
+# calendar date into one cluster.
 
 run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
                               p, bandwidth = NULL, fe_var = "country",
-                              cluster_vars = c("country", "country_election_id")) {
+                              cluster_vars = c("party", "country_election_id")) {
   d <- data[complete.cases(data[, c(outcome_var, running_var, treatment_var, fe_var, cluster_vars)]), ]
   d$.y <- d[[outcome_var]]
   d$.x <- d[[running_var]]
@@ -1532,7 +1576,7 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
                    "do not lean on its significance stars alone."))
   }
 
-  data.frame(
+  out <- data.frame(
     Approach   = if (is.null(bandwidth)) "Parametric" else "Non-Parametric",
     Polynomial = p,
     Bandwidth  = if (is.null(bandwidth)) NA_real_ else bandwidth,
@@ -1542,10 +1586,15 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
     N_below_c  = sum(d$.x < 0),
     N_above_c  = sum(d$.x >= 0),
     Country_FE = if (use_fe) "Yes" else "No (dropped: one-sided groups)",
-    N_clusters_country = n_clusters[["country"]],
-    N_clusters_country_election = n_clusters[["country_election_id"]],
     Reliable_SE = if (length(thin_clusters) == 0) "Yes" else "No (too few clusters)"
   )
+  # Named generically (Cluster_dim1/2) since cluster_vars can be any two columns
+  # (party + country_election_id by default -- see the comment above); the caller
+  # (build_ck_style_table()) knows cluster_vars itself and labels these correctly
+  # in the displayed table.
+  out$Cluster_dim1_n <- n_clusters[[cluster_vars[1]]]
+  out$Cluster_dim2_n <- n_clusters[[cluster_vars[2]]]
+  out
 }
 
 # Reusable wrapper around run_ck_style_row() for any subgroup (H4 left/right,
@@ -1556,7 +1605,7 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
 build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
                                   label, out_path_prefix,
                                   fe_var = "country",
-                                  cluster_vars = c("country", "country_election_id")) {
+                                  cluster_vars = c("party", "country_election_id")) {
   bw_selection <- rdrobust::rdbwselect(
     y = data[[outcome_var]],
     x = data[[running_var]],
@@ -1588,17 +1637,17 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
 
   tbl_display <- tbl[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
                           "Approach", "N_below_c", "N_above_c", "Country_FE",
-                          "N_clusters_country", "N_clusters_country_election", "Reliable_SE")]
+                          "Cluster_dim1_n", "Cluster_dim2_n", "Reliable_SE")]
   tbl_kable <- knitr::kable(
     tbl_display,
     caption = paste0("Table: Mainstream Party Position Change on Environmental Position, ", label,
-                      " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by country ",
-                      "and country-election, rdrobust MSE-optimal bandwidth; country FE dropped for ",
-                      "Non-Parametric rows where they are collinear with treatment; Reliable SE = No means ",
-                      "fewer than 20 clusters on at least one dimension, so the SE/significance stars for ",
-                      "that row should not be trusted at face value)"),
+                      " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by ",
+                      cluster_vars[1], " and ", cluster_vars[2], ", rdrobust MSE-optimal bandwidth; ",
+                      "country FE dropped for Non-Parametric rows where they are collinear with treatment; ",
+                      "Reliable SE = No means fewer than 20 clusters on at least one dimension, so the ",
+                      "SE/significance stars for that row should not be trusted at face value)"),
     col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE",
-                  "N Countries", "N Country-Elections", "Reliable SE"),
+                  paste0("N (", cluster_vars[1], ")"), paste0("N (", cluster_vars[2], ")"), "Reliable SE"),
     digits = 3
   )
   writeLines(tbl_kable, paste0(out_path_prefix, ".md"))
