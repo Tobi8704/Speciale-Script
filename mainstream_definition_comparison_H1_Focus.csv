@@ -1,0 +1,3 @@
+"Dataset","Total_rows","Rows_in_H1_window","Clusters_in_H1_window"
+"Original (lifetime-average >= 10%)",589,73,23
+"Alternative (per-election >= 10%)",568,68,23
