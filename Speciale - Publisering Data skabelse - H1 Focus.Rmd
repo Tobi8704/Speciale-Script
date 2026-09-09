@@ -463,10 +463,17 @@ mpds_european_1960 <- merge(
   all.x = FALSE
 )
 
+# Snapshot pre-mainstream-filter data (threshold-merged, but before the
+# avg_pervote_main >= 10 filter below removes anything). Kept so an alternative
+# mainstream-party inclusion rule can be tried later (see the "H1 Focus:
+# alternative mainstream-party definition" section at the end of this file)
+# without re-running the threshold merge above.
+mpds_european_1960_prefilter <- mpds_european_1960
+
 # Calculate average vote share and filter to mainstream parties (>=10% avg)
-mpds_european_1960 <- mpds_european_1960 %>% 
-  group_by(party) %>% 
-  mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>% 
+mpds_european_1960 <- mpds_european_1960 %>%
+  group_by(party) %>%
+  mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>%
   ungroup() %>%
   filter(avg_pervote_main >= 10)
 
@@ -612,5 +619,140 @@ final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 
 ```{r}
 saveRDS(final_dataset, "final_dataset_publisering_H1_Focus.rds")
+```
+
+## 1.8 H1 Focus: alternative mainstream-party definition (diagnostic, not a replacement)
+
+```{r alternative_mainstream_definition}
+# Section 1.5 decides whether a party counts as "mainstream" (and is therefore
+# eligible to be in the H1/H4/H5 sample at all) using that party's vote share
+# AVERAGED ACROSS ITS ENTIRE OBSERVED HISTORY in the dataset -- potentially
+# 1960s through 2020s, 60+ years. For a design whose observations span many
+# decades per party, "was this party mainstream at the time of THIS election"
+# is arguably the more correct question than "was it mainstream on average
+# over its whole career" -- a party that declined (or grew) over time gets
+# classified uniformly across its whole history either way, which can exclude
+# exactly the elections closest to a Green party's threshold if that party's
+# average is pulled below 10 by decades far from the election in question.
+#
+# This section re-derives final_dataset using a PER-ELECTION mainstream
+# criterion (pervote >= 10 at that specific election) instead of the
+# lifetime-average one, reusing every downstream step (merge with Green party
+# data, parfam exclusion, RILE calculation, dedup, final variable creation)
+# unchanged from above -- only the inclusion filter itself differs. This is a
+# parallel, comparison dataset: it does NOT replace final_dataset above, and
+# whether it helps or hurts H1's near-cutoff sample size is an open empirical
+# question answered by the diagnostic at the end of this chunk, not assumed.
+mpds_european_1960_alt <- mpds_european_1960_prefilter %>%
+  group_by(party) %>%
+  mutate(avg_pervote_main = mean(pervote, na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(pervote >= 10) %>%
+  dplyr::rename(pervote_main = pervote)
+
+full_dataset_alt <- merge(
+  mpds_european_1960_alt,
+  green_party_data_sub,
+  by = c("countryname", "edate"),
+  all.x = FALSE
+)
+
+full_dataset_alt <- full_dataset_alt %>%
+  filter(parfam != "10")
+
+full_dataset_alt <- calculate_rile_lowe(full_dataset_alt)
+
+if (!"per416_2" %in% names(full_dataset_alt) && "per416_2.x" %in% names(full_dataset_alt)) {
+  full_dataset_alt <- full_dataset_alt %>% dplyr::rename(per416_2 = per416_2.x)
+}
+
+final_dataset_alt <- full_dataset_alt %>%
+  dplyr::select(
+    countryname, edate, country, party, oecdmember, eumember, date,
+    partyname, partyabbrev, parfam, absseat, per410, per416, per501, per416_2,
+    per607, per608,
+    threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet,
+    i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe, pervote_main
+  ) %>%
+  remove_duplicates(
+    c("countryname", "edate", "party"),
+    pervote_samlet
+  )
+
+# Same derived-variable construction as section 1.7, applied to the
+# alternative-inclusion dataset.
+final_dataset_alt <- final_dataset_alt %>%
+  mutate(
+    pervote_samlet = as.numeric(pervote_samlet),
+    lagged_pervote_samlet = as.numeric(lagged_pervote_samlet),
+    centered_pervote_samlet = pervote_samlet - threshold,
+    centered_lagged_pervote_samlet = lagged_pervote_samlet - threshold_lagged,
+    miljø_afhængig = log((per416 + per501 + 0.5) / (per410 + 0.5)),
+    kultur_afhaengig = log((per607 + 0.5) / (per608 + 0.5)),
+    country_election_id = paste(countryname, edate, sep = "_"),
+    factor_lagged_i_parlament = factor(
+      lagged_i_parlament,
+      levels = c(0, 1),
+      labels = c("Green Parties w/o Seats", "Green Parties with Seats")
+    ),
+    factor_i_parlament = factor(
+      i_parlament,
+      levels = c(0, 1),
+      labels = c("Green Parties w/o Seats", "Green Parties with Seats")
+    ),
+    large_party = ifelse(pervote_main > median(pervote_main, na.rm = TRUE), 1, 0),
+    large_party_alt = ifelse(avg_pervote_main > median(avg_pervote_main, na.rm = TRUE), 1, 0),
+    left_party = ifelse(rile_lowe < 0, 1, 0)
+  )
+
+final_dataset_alt <- final_dataset_alt %>%
+  mutate(miljø_afhængig_normal = ifelse(per410 == 0, NA, (per501 + per416)/per410))
+
+final_dataset_alt <- final_dataset_alt %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(left_party_lag1 = dplyr::lag(`left_party`, n = 1, order_by = edate))
+
+final_dataset_alt <- final_dataset_alt %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(large_party_lag1 = dplyr::lag(`large_party`, n = 1, order_by = edate))
+
+final_dataset_alt <- final_dataset_alt %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(large_party_alt_lag1 = dplyr::lag(`large_party_alt`, n = 1, order_by = edate))
+
+final_dataset_alt <- final_dataset_alt %>% dplyr::arrange(party, edate)
+
+saveRDS(final_dataset_alt, "final_dataset_publisering_H1_Focus_altmainstream.rds")
+
+# --- Diagnostic: does the alternative definition actually add near-cutoff power? ---
+# H1's non-parametric MSE-optimal bandwidth in the CK-style table was ~1.1
+# (centered_lagged_pervote_samlet). Comparing row/cluster counts inside that
+# window, old vs. new mainstream definition, answers the actual question --
+# adding mainstream parties far from the cutoff doesn't help the non-parametric
+# H1 estimate at all, only additions inside this window do.
+h1_window <- 1.1
+
+compare_row <- function(data, label) {
+  d <- data[complete.cases(data[, c("miljø_afhængig", "centered_lagged_pervote_samlet",
+                                     "lagged_i_parlament", "country_election_id")]), ]
+  in_window <- d[abs(d$centered_lagged_pervote_samlet) <= h1_window, ]
+  data.frame(
+    Dataset = label,
+    Total_rows = nrow(d),
+    Rows_in_H1_window = nrow(in_window),
+    Clusters_in_H1_window = length(unique(in_window$country_election_id))
+  )
+}
+
+mainstream_definition_comparison <- rbind(
+  compare_row(final_dataset, "Original (lifetime-average >= 10%)"),
+  compare_row(final_dataset_alt, "Alternative (per-election >= 10%)")
+)
+print(mainstream_definition_comparison)
+write.csv(mainstream_definition_comparison,
+          "mainstream_definition_comparison_H1_Focus.csv", row.names = FALSE)
 ```
 

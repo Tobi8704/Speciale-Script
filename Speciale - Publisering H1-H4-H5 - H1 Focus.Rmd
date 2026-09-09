@@ -4,7 +4,14 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # 1. Setup and Data Preparation
 ```{r Load af data}
-final_dataset <- readRDS("final_dataset_publisering_H1_Focus.rds")
+# Switch to "final_dataset_publisering_H1_Focus_altmainstream.rds" to re-run
+# everything below against the alternative (per-election, rather than
+# lifetime-average) mainstream-party inclusion criterion built in section 1.8
+# of the data-creation H1-Focus file. Nothing else in this file needs to
+# change -- every chunk below just consumes whichever final_dataset this
+# points at.
+h1_focus_dataset_path <- "final_dataset_publisering_H1_Focus.rds"
+final_dataset <- readRDS(h1_focus_dataset_path)
 ```
 
 
