@@ -1488,17 +1488,21 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   # ONE side of the cutoff (one country alone contributes 12 of the 30 below-cutoff
   # observations, entirely on that side) -- their FE is then (near-)perfectly
   # collinear with treatment, which is what produced the implausible p=1/p=2
-  # estimates (0.96/8.84) even after adding proper kernel weighting. Over the full
-  # (global/parametric) sample there is no such one-sidedness, so FE is kept there.
-  # Diagnose (rather than assume) this on whatever data is actually passed in.
+  # estimates (0.96/8.84) even after adding proper kernel weighting. Tie the FE
+  # decision to sample size (bandwidth-restricted vs. global), NOT to the mere
+  # presence of any one-sided country: over the full (parametric/global, N=589)
+  # sample, a handful of countries never having a Green party in parliament is
+  # normal and shouldn't cost the whole model its FE the way it does in the thin
+  # 73-observation window -- keeping the diagnostic purely informational there.
   side_counts <- table(d[[fe_var]], d$.T > 0 | d$.x >= 0)
   one_sided <- rownames(side_counts)[rowSums(side_counts > 0) == 1]
-  use_fe <- length(one_sided) == 0
-  if (!use_fe) {
+  use_fe <- is.null(bandwidth)
+  if (length(one_sided) > 0) {
     warning(paste0("p=", p, ", bandwidth=", ifelse(is.null(bandwidth), "global", round(bandwidth, 3)),
                    ": these ", fe_var, " groups have observations on only ONE side of the cutoff ",
-                   "(near-collinear with treatment) -- dropping ", fe_var, " fixed effects for this row: ",
-                   paste(one_sided, collapse = ", ")))
+                   "(near-collinear with treatment): ", paste(one_sided, collapse = ", "),
+                   if (!use_fe) " -- dropping fixed effects for this (non-parametric) row" else
+                     " -- keeping fixed effects (parametric/global row has enough data to tolerate this)"))
   }
 
   fml <- as.formula(paste0(
@@ -1573,6 +1577,16 @@ ck_style_table_h1_kable <- knitr::kable(
 writeLines(ck_style_table_h1_kable, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_ck_style_table.md"))
 print(ck_style_table_h1_kable)
 write.csv(ck_style_table_h1, "Publisering Analyse/H1/Publisering h1_ck_style_table.csv", row.names = FALSE)
+
+cat("\nNote: the p=1 (Non-Parametric) row is the reliable comparison point -- it lands",
+    "essentially on top of the main rdrobust() H1 estimate above. The p=2 rows (both",
+    "specifications) are sensitive to which observations dominate the quadratic term",
+    "in this small a sample (N=73 within the bandwidth); this is a known limitation",
+    "of local quadratic RDD estimation in small samples, not specific to this pipeline",
+    "-- see Gelman & Imbens (2019), 'Why High-Order Polynomials Should Not Be Used in",
+    "Regression Discontinuity Designs', Journal of Business & Economic Statistics,",
+    "which is exactly why rdrobust/CCT defaults to local linear (p=1) with bias",
+    "correction rather than a plug-in quadratic fit.\n")
 
 # ============================================================================
 # 4. H4: PARTY IDEOLOGY EFFECT
