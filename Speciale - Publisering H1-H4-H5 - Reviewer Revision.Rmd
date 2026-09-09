@@ -393,7 +393,12 @@ check_rdrobust_cluster_count(h1_rdd, h1_analysis_data, "centered_lagged_pervote_
 # Print summary
 summary_h1 <- summary(h1_rdd)
 
-# Opret tabel direkte fra h1_rdd objektet
+# Opret tabel direkte fra h1_rdd objektet. Reports both the Conventional estimate
+# (index 1: naive point estimate + naive SE) and the Robust one (index 3: Calonico,
+# Cattaneo & Titiunik 2014's bias-corrected estimate + robust SE) -- the latter is
+# the one with valid coverage when using an MSE-optimal bandwidth (as we do here),
+# since the conventional SE does not account for the bias this bandwidth choice
+# introduces. Reporting both rather than only the theoretically preferred one.
 main_results <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h1_rdd$bws[1, 1], 3),
@@ -401,13 +406,20 @@ main_results <- data.frame(
   StdError = round(h1_rdd$se[1], 3),
   pvalue = round(h1_rdd$pv[1], 3),
   CI_Lower = round(h1_rdd$ci[1, 1], 3),
-  CI_Upper = round(h1_rdd$ci[1, 2], 3)
+  CI_Upper = round(h1_rdd$ci[1, 2], 3),
+  LATE_robust = round(h1_rdd$Estimate[3], 3),
+  StdError_robust = round(h1_rdd$se[3], 3),
+  pvalue_robust = round(h1_rdd$pv[3], 3),
+  CI_Lower_robust = round(h1_rdd$ci[3, 1], 3),
+  CI_Upper_robust = round(h1_rdd$ci[3, 2], 3)
 )
 
-main_results_table <- knitr::kable(main_results, 
-                                  caption = "Main RDD Results for H1",
-                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
-                                               "p-value", "95% CI Lower", "95% CI Upper"))
+main_results_table <- knitr::kable(main_results,
+                                  caption = "Main RDD Results for H1 (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper",
+                                               "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
+                                               "95% CI Lower (Robust)", "95% CI Upper (Robust)"))
 
 writeLines(main_results_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_main_results.md"))
 print(main_results_table)
@@ -964,14 +976,21 @@ main_results_table_h4_right <- data.frame(
   StdError = round(h4_rdd_right$se[1], 3),
   pvalue = round(h4_rdd_right$pv[1], 3),
   CI_Lower = round(h4_rdd_right$ci[1, 1], 3),
-  CI_Upper = round(h4_rdd_right$ci[1, 2], 3)
+  CI_Upper = round(h4_rdd_right$ci[1, 2], 3),
+  LATE_robust = round(h4_rdd_right$Estimate[3], 3),
+  StdError_robust = round(h4_rdd_right$se[3], 3),
+  pvalue_robust = round(h4_rdd_right$pv[3], 3),
+  CI_Lower_robust = round(h4_rdd_right$ci[3, 1], 3),
+  CI_Upper_robust = round(h4_rdd_right$ci[3, 2], 3)
 )
-  
+
 # Create a nice table for presentation
-main_results_table_h4_right <- knitr::kable(main_results_table_h4_right, 
-                                  caption = "Main RDD Results for H4_right",
-                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
-                                               "p-value", "95% CI Lower", "95% CI Upper"))
+main_results_table_h4_right <- knitr::kable(main_results_table_h4_right,
+                                  caption = "Main RDD Results for H4_right (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper",
+                                               "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
+                                               "95% CI Lower (Robust)", "95% CI Upper (Robust)"))
 
 # Save the table to a file
 writeLines(main_results_table_h4_right, file.path(getwd(), "Publisering Analyse/H4/h4_right_main_results.md"))
@@ -999,14 +1018,21 @@ main_results_table_h4_left <- data.frame(
   StdError = round(h4_rdd_left$se[1], 3),
   pvalue = round(h4_rdd_left$pv[1], 3),
   CI_Lower = round(h4_rdd_left$ci[1, 1], 3),
-  CI_Upper = round(h4_rdd_left$ci[1, 2], 3)
+  CI_Upper = round(h4_rdd_left$ci[1, 2], 3),
+  LATE_robust = round(h4_rdd_left$Estimate[3], 3),
+  StdError_robust = round(h4_rdd_left$se[3], 3),
+  pvalue_robust = round(h4_rdd_left$pv[3], 3),
+  CI_Lower_robust = round(h4_rdd_left$ci[3, 1], 3),
+  CI_Upper_robust = round(h4_rdd_left$ci[3, 2], 3)
 )
-  
+
 # Create a nice table for presentation
-main_results_table_h4_left <- knitr::kable(main_results_table_h4_left, 
-                                  caption = "Main RDD Results for H4_left",
-                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
-                                               "p-value", "95% CI Lower", "95% CI Upper"))
+main_results_table_h4_left <- knitr::kable(main_results_table_h4_left,
+                                  caption = "Main RDD Results for H4_left (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper",
+                                               "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
+                                               "95% CI Lower (Robust)", "95% CI Upper (Robust)"))
 
 # Save the table to a file
 writeLines(main_results_table_h4_left, file.path(getwd(), "Publisering Analyse/H4/h4_left_main_results.md"))
@@ -1173,14 +1199,21 @@ main_results_table_h5_large <- data.frame(
   StdError = round(h5_large_rdd$se[1], 3),
   pvalue = round(h5_large_rdd$pv[1], 3),
   CI_Lower = round(h5_large_rdd$ci[1, 1], 3),
-  CI_Upper = round(h5_large_rdd$ci[1, 2], 3)
+  CI_Upper = round(h5_large_rdd$ci[1, 2], 3),
+  LATE_robust = round(h5_large_rdd$Estimate[3], 3),
+  StdError_robust = round(h5_large_rdd$se[3], 3),
+  pvalue_robust = round(h5_large_rdd$pv[3], 3),
+  CI_Lower_robust = round(h5_large_rdd$ci[3, 1], 3),
+  CI_Upper_robust = round(h5_large_rdd$ci[3, 2], 3)
 )
-  
+
 # Create a nice table for presentation
-main_results_table_h5_large <- knitr::kable(main_results_table_h5_large, 
-                                  caption = "Main RDD Results for H5_large",
-                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
-                                               "p-value", "95% CI Lower", "95% CI Upper"))
+main_results_table_h5_large <- knitr::kable(main_results_table_h5_large,
+                                  caption = "Main RDD Results for H5_large (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper",
+                                               "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
+                                               "95% CI Lower (Robust)", "95% CI Upper (Robust)"))
 
 # Save the table to a file
 writeLines(main_results_table_h5_large, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_large_main_results.md"))
@@ -1206,13 +1239,20 @@ main_results_table_h5_small <- data.frame(
   StdError = round(h5_small_rdd$se[1], 3),
   pvalue = round(h5_small_rdd$pv[1], 3),
   CI_Lower = round(h5_small_rdd$ci[1, 1], 3),
-  CI_Upper = round(h5_small_rdd$ci[1, 2], 3)
+  CI_Upper = round(h5_small_rdd$ci[1, 2], 3),
+  LATE_robust = round(h5_small_rdd$Estimate[3], 3),
+  StdError_robust = round(h5_small_rdd$se[3], 3),
+  pvalue_robust = round(h5_small_rdd$pv[3], 3),
+  CI_Lower_robust = round(h5_small_rdd$ci[3, 1], 3),
+  CI_Upper_robust = round(h5_small_rdd$ci[3, 2], 3)
 )
 
-main_results_table_h5_small <- knitr::kable(main_results_table_h5_small, 
-                                  caption = "Main RDD Results for H5_small",
-                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error", 
-                                               "p-value", "95% CI Lower", "95% CI Upper"))
+main_results_table_h5_small <- knitr::kable(main_results_table_h5_small,
+                                  caption = "Main RDD Results for H5_small (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper",
+                                               "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
+                                               "95% CI Lower (Robust)", "95% CI Upper (Robust)"))
 
 # Save the table to a file
 writeLines(main_results_table_h5_small, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_small_main_results.md"))
@@ -2214,10 +2254,13 @@ domain_comparison <- data.frame(
   LATE = round(c(h1_rdd$Estimate[1], h1_rdd_cultural$Estimate[1]), 3),
   StdError = round(c(h1_rdd$se[1], h1_rdd_cultural$se[1]), 3),
   pvalue = round(c(h1_rdd$pv[1], h1_rdd_cultural$pv[1]), 3),
+  LATE_robust = round(c(h1_rdd$Estimate[3], h1_rdd_cultural$Estimate[3]), 3),
+  StdError_robust = round(c(h1_rdd$se[3], h1_rdd_cultural$se[3]), 3),
+  pvalue_robust = round(c(h1_rdd$pv[3], h1_rdd_cultural$pv[3]), 3),
   N = c(sum(h1_rdd$N_h), sum(h1_rdd_cultural$N_h))
 )
 domain_comparison_table <- knitr::kable(domain_comparison,
-  caption = "Table: Green Party Parliamentary Entry Effect Across Issue Domains")
+  caption = "Table: Green Party Parliamentary Entry Effect Across Issue Domains (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)")
 writeLines(domain_comparison_table, file.path(getwd(), "Publisering Analyse/Cultural/Publisering domain_comparison.md"))
 print(domain_comparison_table)
 write.csv(domain_comparison, "Publisering Analyse/Cultural/Publisering domain_comparison.csv", row.names = FALSE)
