@@ -2100,6 +2100,8 @@ h1_rdd_cultural <- rdrobust(
   bwselect = "mserd",
   cluster = h1_cultural_analysis_data$country_election_id
 )
+check_rdrobust_cluster_count(h1_rdd_cultural, h1_cultural_analysis_data, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H1 cultural rdrobust")
 summary(h1_rdd_cultural)
 
 main_results_cultural <- data.frame(
@@ -2149,12 +2151,16 @@ h4_rdd_right_cultural <- rdrobust(
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
     cluster = clean_data_right_party_cultural$country_election_id
   )
+check_rdrobust_cluster_count(h4_rdd_right_cultural, clean_data_right_party_cultural, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 right-wing cultural rdrobust")
 h4_rdd_left_cultural <- rdrobust(
     y = clean_data_left_party_cultural$kultur_afhaengig,
     x = clean_data_left_party_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
     cluster = clean_data_left_party_cultural$country_election_id
   )
+check_rdrobust_cluster_count(h4_rdd_left_cultural, clean_data_left_party_cultural, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 left-wing cultural rdrobust")
 
 h4_cultural_results <- data.frame(
   Group = c("Right-Wing Parties", "Left-Wing Parties"),
@@ -2182,12 +2188,16 @@ h5_rdd_large_cultural <- rdrobust(
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
     cluster = large_parties_cultural$country_election_id
   )
+check_rdrobust_cluster_count(h5_rdd_large_cultural, large_parties_cultural, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 large-parties cultural rdrobust")
 h5_rdd_small_cultural <- rdrobust(
     y = small_parties_cultural$kultur_afhaengig,
     x = small_parties_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
     cluster = small_parties_cultural$country_election_id
   )
+check_rdrobust_cluster_count(h5_rdd_small_cultural, small_parties_cultural, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 small-parties cultural rdrobust")
 
 h5_cultural_results <- data.frame(
   Group = c("Large Parties", "Small Parties"),
