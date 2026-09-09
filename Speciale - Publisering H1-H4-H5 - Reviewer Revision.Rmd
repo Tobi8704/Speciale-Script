@@ -1482,23 +1482,31 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
     inter_terms <- c(inter_terms, tcol)
   }
 
-  fml <- as.formula(paste0(
-    ".y ~ .T + ", paste(poly_terms, collapse = " + "), " + ",
-    paste(inter_terms, collapse = " + "), " | ", fe_var
-  ))
-  cluster_fml <- as.formula(paste0("~", paste(cluster_vars, collapse = " + ")))
-
-  # Diagnostic: flag countries whose observations fall entirely on one side of the
-  # cutoff within this window -- their country fixed effect is then (near-)perfectly
-  # collinear with treatment/the polynomial terms, which is a classic source of
-  # wild, unstable coefficients in narrow-bandwidth FE specifications.
+  # Country fixed effects are only usable where there's enough within-country
+  # variation to support them. Checked directly on this data: within the
+  # non-parametric bandwidth window, 6 of 10 countries have observations on only
+  # ONE side of the cutoff (one country alone contributes 12 of the 30 below-cutoff
+  # observations, entirely on that side) -- their FE is then (near-)perfectly
+  # collinear with treatment, which is what produced the implausible p=1/p=2
+  # estimates (0.96/8.84) even after adding proper kernel weighting. Over the full
+  # (global/parametric) sample there is no such one-sidedness, so FE is kept there.
+  # Diagnose (rather than assume) this on whatever data is actually passed in.
   side_counts <- table(d[[fe_var]], d$.T > 0 | d$.x >= 0)
   one_sided <- rownames(side_counts)[rowSums(side_counts > 0) == 1]
-  if (length(one_sided) > 0) {
+  use_fe <- length(one_sided) == 0
+  if (!use_fe) {
     warning(paste0("p=", p, ", bandwidth=", ifelse(is.null(bandwidth), "global", round(bandwidth, 3)),
                    ": these ", fe_var, " groups have observations on only ONE side of the cutoff ",
-                   "(near-collinear with treatment): ", paste(one_sided, collapse = ", ")))
+                   "(near-collinear with treatment) -- dropping ", fe_var, " fixed effects for this row: ",
+                   paste(one_sided, collapse = ", ")))
   }
+
+  fml <- as.formula(paste0(
+    ".y ~ .T + ", paste(poly_terms, collapse = " + "), " + ",
+    paste(inter_terms, collapse = " + "),
+    if (use_fe) paste0(" | ", fe_var) else ""
+  ))
+  cluster_fml <- as.formula(paste0("~", paste(cluster_vars, collapse = " + ")))
 
   model <- fixest::feols(fml, data = d, weights = ~.kw, cluster = cluster_fml)
   ct <- fixest::coeftable(model)
@@ -1511,7 +1519,8 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
     StdErr     = round(ct[".T", "Std. Error"], 3),
     pvalue     = round(ct[".T", "Pr(>|t|)"], 4),
     N_below_c  = sum(d$.x < 0),
-    N_above_c  = sum(d$.x >= 0)
+    N_above_c  = sum(d$.x >= 0),
+    Country_FE = if (use_fe) "Yes" else "No (dropped: one-sided groups)"
   )
 }
 
@@ -1554,11 +1563,11 @@ ck_style_table_h1$LATE_stars <- paste0(ck_style_table_h1$LATE, ck_style_table_h1
 print(ck_style_table_h1)
 
 ck_style_table_h1_display <- ck_style_table_h1[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
-                                                     "Approach", "N_below_c", "N_above_c")]
+                                                     "Approach", "N_below_c", "N_above_c", "Country_FE")]
 ck_style_table_h1_kable <- knitr::kable(
   ck_style_table_h1_display,
-  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: country FE, two-way clustered SEs by country and country-election, rdrobust MSE-optimal bandwidth)",
-  col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c"),
+  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by country and country-election, rdrobust MSE-optimal bandwidth; country FE dropped for Non-Parametric rows where they are collinear with treatment, see Country FE column)",
+  col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE"),
   digits = 3
 )
 writeLines(ck_style_table_h1_kable, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_ck_style_table.md"))
