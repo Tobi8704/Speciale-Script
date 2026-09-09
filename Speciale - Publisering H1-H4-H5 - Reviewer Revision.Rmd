@@ -1448,19 +1448,29 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
                               p, bandwidth = NULL, fe_var = "country",
                               cluster_vars = c("country", "country_election_id")) {
   d <- data[complete.cases(data[, c(outcome_var, running_var, treatment_var, fe_var, cluster_vars)]), ]
-  if (!is.null(bandwidth)) {
-    d <- d[abs(d[[running_var]]) <= bandwidth, ]
-  }
   d$.y <- d[[outcome_var]]
   d$.x <- d[[running_var]]
   d$.T <- d[[treatment_var]]
 
+  # Abou-Chadi & Krause's non-parametric rows use a triangular-KERNEL-WEIGHTED
+  # local regression (their rd.core(), via rdd::kernelwts()) -- weight 1 exactly
+  # at the cutoff, decaying linearly to 0 at the bandwidth edge -- not a hard 0/1
+  # bandwidth cutoff. A hard-subset OLS gives full weight to observations right at
+  # the edge of the window, which (combined with country fixed effects eating
+  # degrees of freedom in a small sample) is what produced an implausible jump in
+  # the estimate between p=1 and p=2 in testing. rdd is archived on CRAN (see the
+  # earlier IKbandwidth() fix), so the triangular kernel weight is reimplemented
+  # directly: w = max(0, 1 - |x|/bandwidth).
+  if (!is.null(bandwidth)) {
+    d$.kw <- pmax(0, 1 - abs(d$.x) / bandwidth)
+    d <- d[d$.kw > 0, ]
+  } else {
+    d$.kw <- 1
+  }
+
   # Build the polynomial and treatment-interaction terms as explicit plain columns
-  # rather than relying on formula-level poly()/":" interaction expansion -- fixest
-  # has its own formula parser (distinct from base R's), which mis-expanded
-  # .T:poly(.x, p, raw = TRUE) for p >= 2 in testing (produced an implausible jump
-  # in the estimate between p=1 and p=2 on the same sample/bandwidth). Explicit
-  # columns are unambiguous under any parser since every term is a plain scalar.
+  # (equivalent to Abou-Chadi & Krause's poly(force.var, p) + poly(force_above, p)
+  # terms) rather than relying on formula-level poly()/":" interaction syntax.
   poly_terms <- character(0)
   inter_terms <- character(0)
   for (j in 1:p) {
@@ -1478,7 +1488,19 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   ))
   cluster_fml <- as.formula(paste0("~", paste(cluster_vars, collapse = " + ")))
 
-  model <- fixest::feols(fml, data = d, cluster = cluster_fml)
+  # Diagnostic: flag countries whose observations fall entirely on one side of the
+  # cutoff within this window -- their country fixed effect is then (near-)perfectly
+  # collinear with treatment/the polynomial terms, which is a classic source of
+  # wild, unstable coefficients in narrow-bandwidth FE specifications.
+  side_counts <- table(d[[fe_var]], d$.T > 0 | d$.x >= 0)
+  one_sided <- rownames(side_counts)[rowSums(side_counts > 0) == 1]
+  if (length(one_sided) > 0) {
+    warning(paste0("p=", p, ", bandwidth=", ifelse(is.null(bandwidth), "global", round(bandwidth, 3)),
+                   ": these ", fe_var, " groups have observations on only ONE side of the cutoff ",
+                   "(near-collinear with treatment): ", paste(one_sided, collapse = ", ")))
+  }
+
+  model <- fixest::feols(fml, data = d, weights = ~.kw, cluster = cluster_fml)
   ct <- fixest::coeftable(model)
 
   data.frame(
