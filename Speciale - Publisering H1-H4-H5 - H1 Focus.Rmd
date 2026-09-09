@@ -406,18 +406,21 @@ check_rdrobust_cluster_count(h1_rdd, h1_analysis_data, "centered_lagged_pervote_
 # Uses the identical covariate set (country, edate) already used everywhere else
 # in this file's own robustness sweep (run_rdd_robustness(covariates = c("country",
 # "edate"))), so this is not a new, hand-picked covariate set chosen because it
-# helps -- it is the set this file already treats as the standard controls. The
-# two raw columns are passed through unmodified, exactly as run_rdd_robustness()
-# already does internally for the same covariate set (see its covs_matrix
-# construction above) -- if edate's stored type ever needs explicit coercion for
-# rdrobust's covs= to accept it, that is a pre-existing property of this file's
-# established covariate handling, not something specific to this companion model,
-# and should be fixed in both places together rather than diverging here.
-# Reported ALONGSIDE, never instead of, the no-covariate h1_rdd above.
+# helps -- it is the set this file already treats as the standard controls.
+# edate is stored as class Date; run_rdd_robustness() builds its covariate
+# matrix via do.call(cbind, covs_list) on raw vectors, which silently demotes
+# a Date vector to its underlying numeric day-count when combined with a plain
+# numeric vector via cbind (Date is just a numeric with a class attribute, and
+# cbind() on atomic vectors drops that attribute). Passing a data.frame slice
+# straight to covs=, as an earlier version of this chunk did, keeps edate
+# Date-classed and made rdrobust's internal storage.mode(x) <- "double" fail
+# with "NA/NaN/Inf in foreign function call" -- confirmed by actually running
+# this chunk. Using the same cbind()-on-raw-vectors construction as
+# run_rdd_robustness() fixes it and keeps both call sites consistent.
 h1_rdd_covs <- rdrobust(
   y = h1_analysis_data$miljø_afhængig,
   x = h1_analysis_data$centered_lagged_pervote_samlet,
-  covs = h1_analysis_data[, c("country", "edate")],
+  covs = cbind(h1_analysis_data$country, h1_analysis_data$edate),
   c = 0,
   p = 1,
   kernel = "triangular",
