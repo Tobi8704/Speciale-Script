@@ -1530,7 +1530,8 @@ write.csv(balance_table_df, "Publisering Analyse/H1/Publisering h1_balance_table
 
 run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
                               p, bandwidth = NULL, fe_var = "country",
-                              cluster_vars = c("party", "country_election_id")) {
+                              cluster_vars = c("party", "country_election_id"),
+                              bw_type = "MSE-optimal") {
   d <- data[complete.cases(data[, c(outcome_var, running_var, treatment_var, fe_var, cluster_vars)]), ]
   d$.y <- d[[outcome_var]]
   d$.x <- d[[running_var]]
@@ -1617,7 +1618,7 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   }
 
   out <- data.frame(
-    Approach   = if (is.null(bandwidth)) "Parametric" else "Non-Parametric",
+    Approach   = if (is.null(bandwidth)) "Parametric" else paste0("Non-Parametric (", bw_type, ")"),
     Polynomial = p,
     Bandwidth  = if (is.null(bandwidth)) NA_real_ else bandwidth,
     LATE       = round(ct[".T", "Estimate"], 3),
@@ -1657,11 +1658,36 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
   cat(label, "MSE-optimal bandwidth (used for the Non-Parametric rows):",
       round(nonparam_bandwidth, 3), "\n")
 
+  # CER-optimal bandwidth: the other bandwidth selector Calonico, Cattaneo &
+  # Titiunik (2014) propose alongside MSE-optimal. MSE-optimal minimizes the
+  # estimator's mean squared error; CER-optimal instead minimizes the coverage
+  # error of the confidence interval, and is deliberately undersmoothed relative
+  # to MSE-optimal (typically a narrower bandwidth) so the resulting CI has
+  # closer-to-nominal coverage. Reported as an additional robustness row (p=1
+  # only, matching AC&K's preferred non-parametric specification) -- NOT picked
+  # because it changes significance, but because it is the paper's own named
+  # alternative to MSE-optimal and a legitimate bandwidth robustness check.
+  bw_selection_cer <- rdrobust::rdbwselect(
+    y = data[[outcome_var]],
+    x = data[[running_var]],
+    c = 0,
+    kernel = "triangular",
+    bwselect = "cerrd"
+  )
+  cer_bandwidth <- bw_selection_cer$bws[1, 1]
+  cat(label, "CER-optimal bandwidth (robustness row, Calonico/Cattaneo/Titiunik 2014):",
+      round(cer_bandwidth, 3), "\n")
+
   tbl <- rbind(
     run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 1,
-                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars),
+                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars,
+                     bw_type = "MSE-optimal"),
     run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 2,
-                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars),
+                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars,
+                     bw_type = "MSE-optimal"),
+    run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 1,
+                     bandwidth = cer_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars,
+                     bw_type = "CER-optimal"),
     run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 3,
                      bandwidth = NULL, fe_var = fe_var, cluster_vars = cluster_vars),
     run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 4,
@@ -1682,7 +1708,9 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
     tbl_display,
     caption = paste0("Table: Mainstream Party Position Change on Environmental Position, ", label,
                       " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by ",
-                      cluster_vars[1], " and ", cluster_vars[2], ", rdrobust MSE-optimal bandwidth; ",
+                      cluster_vars[1], " and ", cluster_vars[2], "; Non-Parametric rows report both the ",
+                      "rdrobust MSE-optimal bandwidth (p=1,2) and, as a robustness check, the CER-optimal ",
+                      "bandwidth (p=1) -- both selectors from Calonico, Cattaneo & Titiunik (2014); ",
                       "country FE dropped for Non-Parametric rows where they are collinear with treatment; ",
                       "Reliable SE = No means fewer than 20 clusters on at least one dimension, so the ",
                       "SE/significance stars for that row should not be trusted at face value)"),
