@@ -1455,8 +1455,26 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   d$.x <- d[[running_var]]
   d$.T <- d[[treatment_var]]
 
+  # Build the polynomial and treatment-interaction terms as explicit plain columns
+  # rather than relying on formula-level poly()/":" interaction expansion -- fixest
+  # has its own formula parser (distinct from base R's), which mis-expanded
+  # .T:poly(.x, p, raw = TRUE) for p >= 2 in testing (produced an implausible jump
+  # in the estimate between p=1 and p=2 on the same sample/bandwidth). Explicit
+  # columns are unambiguous under any parser since every term is a plain scalar.
+  poly_terms <- character(0)
+  inter_terms <- character(0)
+  for (j in 1:p) {
+    xcol <- paste0(".x", j)
+    tcol <- paste0(".Tx", j)
+    d[[xcol]] <- d$.x^j
+    d[[tcol]] <- d$.T * d$.x^j
+    poly_terms <- c(poly_terms, xcol)
+    inter_terms <- c(inter_terms, tcol)
+  }
+
   fml <- as.formula(paste0(
-    ".y ~ .T + poly(.x, ", p, ", raw = TRUE) + .T:poly(.x, ", p, ", raw = TRUE) | ", fe_var
+    ".y ~ .T + ", paste(poly_terms, collapse = " + "), " + ",
+    paste(inter_terms, collapse = " + "), " | ", fe_var
   ))
   cluster_fml <- as.formula(paste0("~", paste(cluster_vars, collapse = " + ")))
 
