@@ -1436,7 +1436,7 @@ write.csv(balance_table_df, "Publisering Analyse/H1/Publisering h1_balance_table
 # section adds that specification as an OLS-based robustness check alongside (not
 # instead of) the main rdrobust() results above: a local polynomial regression of
 # the outcome on the running variable, interacted with treatment, with country
-# fixed effects, fit (a) within an Imbens-Kalyanaraman (2009) bandwidth for
+# fixed effects, fit (a) within an rdrobust MSE-optimal (CCT) bandwidth for
 # polynomials 1-2 ("Non-Parametric") and (b) over the full sample for polynomials
 # 3-4 ("Parametric") -- the same four-row structure as that paper's Table 2.
 # Clustered two-way by country and country_election_id: country captures serial
@@ -1475,22 +1475,31 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   )
 }
 
-# Imbens-Kalyanaraman (2009) bandwidth, computed once and shared by the two
-# "Non-Parametric" rows (matching Table 2's structure, where p=1 and p=2 use the
-# same bandwidth).
-h1_ik_bandwidth <- rdd::IKbandwidth(
-  X = h1_analysis_data$centered_lagged_pervote_samlet,
-  Y = h1_analysis_data$miljø_afhængig,
-  cutpoint = 0,
-  kernel = "triangular"
+# Bandwidth for the two "Non-Parametric" rows (matching Table 2's structure, where
+# p=1 and p=2 share one bandwidth). The `rdd` package (Imbens-Kalyanaraman's own
+# IKbandwidth()) was archived by CRAN on 2025-07-10 and is no longer installable
+# via a normal install.packages()/pacman::p_load() call, so this uses rdrobust's
+# own MSE-optimal bandwidth selector (Calonico-Cattaneo-Titiunik) instead -- the
+# same selector already used for the main H1 rdrobust() estimate above. This is a
+# different (more modern) selector than the literal Imbens-Kalyanaraman (2009)
+# one Abou-Chadi & Krause report, not a drop-in equivalent, so label it as such
+# rather than calling it "IK bandwidth" in the writeup.
+h1_bw_selection <- rdrobust::rdbwselect(
+  y = h1_analysis_data$miljø_afhængig,
+  x = h1_analysis_data$centered_lagged_pervote_samlet,
+  c = 0,
+  kernel = "triangular",
+  bwselect = "mserd"
 )
-cat("H1 Imbens-Kalyanaraman bandwidth:", round(h1_ik_bandwidth, 3), "\n")
+h1_nonparam_bandwidth <- h1_bw_selection$bws[1, 1]
+cat("H1 MSE-optimal bandwidth (CCT, used for the Non-Parametric rows):",
+    round(h1_nonparam_bandwidth, 3), "\n")
 
 ck_style_table_h1 <- rbind(
   run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 1, bandwidth = h1_ik_bandwidth),
+                   "lagged_i_parlament", p = 1, bandwidth = h1_nonparam_bandwidth),
   run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
-                   "lagged_i_parlament", p = 2, bandwidth = h1_ik_bandwidth),
+                   "lagged_i_parlament", p = 2, bandwidth = h1_nonparam_bandwidth),
   run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
                    "lagged_i_parlament", p = 3, bandwidth = NULL),
   run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
@@ -1508,7 +1517,7 @@ ck_style_table_h1_display <- ck_style_table_h1[, c("LATE_stars", "StdErr", "Band
                                                      "Approach", "N_below_c", "N_above_c")]
 ck_style_table_h1_kable <- knitr::kable(
   ck_style_table_h1_display,
-  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: country FE, two-way clustered SEs by country and country-election, IK bandwidth)",
+  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: country FE, two-way clustered SEs by country and country-election, rdrobust MSE-optimal bandwidth)",
   col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c"),
   digits = 3
 )
