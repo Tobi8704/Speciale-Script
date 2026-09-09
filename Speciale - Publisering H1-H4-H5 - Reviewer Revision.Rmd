@@ -1528,6 +1528,62 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
   )
 }
 
+# Reusable wrapper around run_ck_style_row() for any subgroup (H4 left/right,
+# H5 large/small): computes that subgroup's own MSE-optimal bandwidth, builds the
+# same four-row table (p=1,2 Non-Parametric; p=3,4 Parametric/global), and saves
+# it. "Global" here means the full subgroup sample (e.g. all left-wing party
+# observations), not the full dataset.
+build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
+                                  label, out_path_prefix,
+                                  fe_var = "country",
+                                  cluster_vars = c("country", "country_election_id")) {
+  bw_selection <- rdrobust::rdbwselect(
+    y = data[[outcome_var]],
+    x = data[[running_var]],
+    c = 0,
+    kernel = "triangular",
+    bwselect = "mserd"
+  )
+  nonparam_bandwidth <- bw_selection$bws[1, 1]
+  cat(label, "MSE-optimal bandwidth (used for the Non-Parametric rows):",
+      round(nonparam_bandwidth, 3), "\n")
+
+  tbl <- rbind(
+    run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 1,
+                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars),
+    run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 2,
+                     bandwidth = nonparam_bandwidth, fe_var = fe_var, cluster_vars = cluster_vars),
+    run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 3,
+                     bandwidth = NULL, fe_var = fe_var, cluster_vars = cluster_vars),
+    run_ck_style_row(data, outcome_var, running_var, treatment_var, p = 4,
+                     bandwidth = NULL, fe_var = fe_var, cluster_vars = cluster_vars)
+  )
+
+  tbl$Signif <- ifelse(tbl$pvalue < 0.01, "***",
+                 ifelse(tbl$pvalue < 0.05, "**",
+                 ifelse(tbl$pvalue < 0.1, "*", "")))
+  tbl$LATE_stars <- paste0(tbl$LATE, tbl$Signif)
+
+  print(tbl)
+
+  tbl_display <- tbl[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
+                          "Approach", "N_below_c", "N_above_c", "Country_FE")]
+  tbl_kable <- knitr::kable(
+    tbl_display,
+    caption = paste0("Table: Mainstream Party Position Change on Environmental Position, ", label,
+                      " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by country ",
+                      "and country-election, rdrobust MSE-optimal bandwidth; country FE dropped for ",
+                      "Non-Parametric rows where they are collinear with treatment)"),
+    col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE"),
+    digits = 3
+  )
+  writeLines(tbl_kable, paste0(out_path_prefix, ".md"))
+  print(tbl_kable)
+  write.csv(tbl, paste0(out_path_prefix, ".csv"), row.names = FALSE)
+
+  tbl
+}
+
 # Bandwidth for the two "Non-Parametric" rows (matching Table 2's structure, where
 # p=1 and p=2 share one bandwidth). The `rdd` package (Imbens-Kalyanaraman's own
 # IKbandwidth()) was archived by CRAN on 2025-07-10 and is no longer installable
@@ -1622,7 +1678,7 @@ ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_par
 
 ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_party_stability.png", plot = h4_right_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h4_comparison_plot_p1_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
@@ -1634,7 +1690,7 @@ h4_comparison_plot_p1_ideology <- compare_coefficient_stability(
   title = "H4: Effect of Green Parties (Polynomial Order 1)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h4_comparison_plot_p2_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
@@ -1646,7 +1702,7 @@ h4_comparison_plot_p2_ideology <- compare_coefficient_stability(
   title = "H4: Effect of Green Parties (Polynomial Order 2)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h4_comparison_plot_p3_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
@@ -1658,7 +1714,7 @@ h4_comparison_plot_p3_ideology <- compare_coefficient_stability(
   title = "H4: Effect of Green Parties (Polynomial Order 3)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h4_comparison_plot_p4_ideology <- compare_coefficient_stability(
   data_list = list(clean_data_left_party, clean_data_right_party),
   labels = c("Left-wing Parties", "Right-wing Parties"),
@@ -1782,6 +1838,25 @@ h4_right_outcome_placebo_plot <- plot_outcome_placebo_test(
 ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_left_outcome_placebo.png", plot = h4_left_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 ggsave("Publisering Robusthedstests/H4 tests - Appendiks/Publisering h4_right_outcome_placebo.png", plot = h4_right_outcome_placebo_plot, width = 8, height = 6, dpi = 300)
 
+# 4.7 Abou-Chadi & Krause (2020)-style robustness table for H4 ----------------
+ck_style_table_h4_left <- build_ck_style_table(
+  data = clean_data_left_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  treatment_var = "lagged_i_parlament",
+  label = "H4 Left-Wing Parties",
+  out_path_prefix = "Publisering Analyse/H4/Publisering h4_left_ck_style_table"
+)
+
+ck_style_table_h4_right <- build_ck_style_table(
+  data = clean_data_right_party,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  treatment_var = "lagged_i_parlament",
+  label = "H4 Right-Wing Parties",
+  out_path_prefix = "Publisering Analyse/H4/Publisering h4_right_ck_style_table"
+)
+
 # ============================================================================
 # 5. H5: PARTY SIZE EFFECT
 # ============================================================================
@@ -1816,7 +1891,7 @@ ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_pa
 
 ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_party_stability_plot.png", plot = h5_small_party_stability_plot$plot, width = 10, height = 6, dpi = 300)
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h5_comparison_plot_p1_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
@@ -1828,7 +1903,7 @@ h5_comparison_plot_p1_size <- compare_coefficient_stability(
   title = "H5: Effect of Green Parties (Polynomial Order 1)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h5_comparison_plot_p2_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
@@ -1840,7 +1915,7 @@ h5_comparison_plot_p2_size <- compare_coefficient_stability(
   title = "H5: Effect of Green Parties (Polynomial Order 2)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h5_comparison_plot_p3_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
@@ -1852,7 +1927,7 @@ h5_comparison_plot_p3_size <- compare_coefficient_stability(
   title = "H5: Effect of Green Parties (Polynomial Order 3)"
 )
 
-# 2.3 Comparison of RRP Effects Across Polynomials ----------------
+# 2.3 Comparison of Green Party Effects Across Polynomials ----------------
 h5_comparison_plot_p4_size <- compare_coefficient_stability(
   data_list = list(large_parties, small_parties),
   labels = c("Large Parties", "Small Parties"),
@@ -1935,6 +2010,25 @@ summary(h5_small_density_test)
 # Save density plots
 ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_large_density.png", plot = h5_large_density_plot$Estplot, width = 10, height = 6, dpi = 300)
 ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_density.png", plot = h5_small_density_plot$Estplot, width = 10, height = 6, dpi = 300)
+
+# 5.7 Abou-Chadi & Krause (2020)-style robustness table for H5 ----------------
+ck_style_table_h5_large <- build_ck_style_table(
+  data = large_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  treatment_var = "lagged_i_parlament",
+  label = "H5 Large Parties",
+  out_path_prefix = "Publisering Analyse/H5/Publisering h5_large_ck_style_table"
+)
+
+ck_style_table_h5_small <- build_ck_style_table(
+  data = small_parties,
+  outcome_var = "miljø_afhængig",
+  running_var = "centered_lagged_pervote_samlet",
+  treatment_var = "lagged_i_parlament",
+  label = "H5 Small Parties",
+  out_path_prefix = "Publisering Analyse/H5/Publisering h5_small_ck_style_table"
+)
 
 ```
 
@@ -2221,8 +2315,8 @@ if("parfam" %in% names(final_dataset)) {
 }
 
 # 4. Missing data analyse -----
-key_variables <- c("miljø_afhængig", "centered_lagged_pervote_samlet", 
-                  "lagged_i_parlament", "rrp_i_p_lag1", "left_party_lag1", 
+key_variables <- c("miljø_afhængig", "centered_lagged_pervote_samlet",
+                  "lagged_i_parlament", "left_party_lag1",
                   "large_party_lag1", "good_economy_lag1", "GDP_per_capita_lag1",
                   "Unemployment", "Inflation-consumer prices")
 
@@ -2547,12 +2641,6 @@ if(exists("tabel7")) {
   tabeller_samlet <- c(tabeller_samlet,
                      "\n\n## Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament\n\n",
                      tabel7)
-}
-
-if(exists("tabel8")) {
-  tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A8: Deskriptiv statistik for H2 - Højreradikale partier i parlament\n\n",
-                     tabel8)
 }
 
 if(exists("tabel9")) {

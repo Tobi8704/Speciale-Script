@@ -533,7 +533,7 @@ final_dataset <- full_dataset %>%
   )
 ```
 
-## 1.7 Final Variable Creation og Radical Right Parti Presence
+## 1.7 Final Variable Creation
 
 ```{r create_final_variables}
 # Create all derived variables needed for analysis
@@ -608,8 +608,6 @@ final_dataset <- final_dataset %>%
 
 # Sortér data efter parti og dato
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
-
-#View(final_dataset[, c("parfam","rrp_i_p_lag1", "rrp_i_p", "countryname", "party", "edate")])
 ```
 
 ```{r}
