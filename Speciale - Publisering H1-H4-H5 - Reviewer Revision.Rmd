@@ -24,7 +24,7 @@ pacman::p_load(
   
   # Statistical analysis
   rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, ivreg,
-  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm,
+  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm, fixest,
   
   # Missing data analysis
   naniar,
@@ -1426,6 +1426,95 @@ balance_table <- knitr::kable(
 writeLines(balance_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_balance_table.md"))
 print(balance_table)
 write.csv(balance_table_df, "Publisering Analyse/H1/Publisering h1_balance_table.csv", row.names = FALSE)
+
+# 1.6 Abou-Chadi & Krause (2020)-style robustness table for H1 ----------------
+# rdrobust() only supports one-way clustering (see ?rdrobust: cluster requires
+# vce = cr1/cr2/cr3, a single grouping variable), so it cannot reproduce a table
+# built with two-way clustered SEs and country fixed effects, as in the RDD
+# literature this design is closest to (e.g. Abou-Chadi & Krause 2020, "The Causal
+# Effect of Radical Right Success on Mainstream Parties' Policy Positions"). This
+# section adds that specification as an OLS-based robustness check alongside (not
+# instead of) the main rdrobust() results above: a local polynomial regression of
+# the outcome on the running variable, interacted with treatment, with country
+# fixed effects, fit (a) within an Imbens-Kalyanaraman (2009) bandwidth for
+# polynomials 1-2 ("Non-Parametric") and (b) over the full sample for polynomials
+# 3-4 ("Parametric") -- the same four-row structure as that paper's Table 2.
+# Clustered two-way by country and country_election_id: country captures serial
+# correlation within a country across elections, country_election_id captures the
+# same Green-party running variable/treatment being shared by every mainstream
+# party within one election (the dependence structure the reviewer flagged).
+
+run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
+                              p, bandwidth = NULL, fe_var = "country",
+                              cluster_vars = c("country", "country_election_id")) {
+  d <- data[complete.cases(data[, c(outcome_var, running_var, treatment_var, fe_var, cluster_vars)]), ]
+  if (!is.null(bandwidth)) {
+    d <- d[abs(d[[running_var]]) <= bandwidth, ]
+  }
+  d$.y <- d[[outcome_var]]
+  d$.x <- d[[running_var]]
+  d$.T <- d[[treatment_var]]
+
+  fml <- as.formula(paste0(
+    ".y ~ .T + poly(.x, ", p, ", raw = TRUE) + .T:poly(.x, ", p, ", raw = TRUE) | ", fe_var
+  ))
+  cluster_fml <- as.formula(paste0("~", paste(cluster_vars, collapse = " + ")))
+
+  model <- fixest::feols(fml, data = d, cluster = cluster_fml)
+  ct <- fixest::coeftable(model)
+
+  data.frame(
+    Approach   = if (is.null(bandwidth)) "Parametric" else "Non-Parametric",
+    Polynomial = p,
+    Bandwidth  = if (is.null(bandwidth)) NA_real_ else bandwidth,
+    LATE       = round(ct[".T", "Estimate"], 3),
+    StdErr     = round(ct[".T", "Std. Error"], 3),
+    pvalue     = round(ct[".T", "Pr(>|t|)"], 4),
+    N_below_c  = sum(d$.x < 0),
+    N_above_c  = sum(d$.x >= 0)
+  )
+}
+
+# Imbens-Kalyanaraman (2009) bandwidth, computed once and shared by the two
+# "Non-Parametric" rows (matching Table 2's structure, where p=1 and p=2 use the
+# same bandwidth).
+h1_ik_bandwidth <- rdd::IKbandwidth(
+  X = h1_analysis_data$centered_lagged_pervote_samlet,
+  Y = h1_analysis_data$miljø_afhængig,
+  cutpoint = 0,
+  kernel = "triangular"
+)
+cat("H1 Imbens-Kalyanaraman bandwidth:", round(h1_ik_bandwidth, 3), "\n")
+
+ck_style_table_h1 <- rbind(
+  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
+                   "lagged_i_parlament", p = 1, bandwidth = h1_ik_bandwidth),
+  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
+                   "lagged_i_parlament", p = 2, bandwidth = h1_ik_bandwidth),
+  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
+                   "lagged_i_parlament", p = 3, bandwidth = NULL),
+  run_ck_style_row(h1_analysis_data, "miljø_afhængig", "centered_lagged_pervote_samlet",
+                   "lagged_i_parlament", p = 4, bandwidth = NULL)
+)
+
+ck_style_table_h1$Signif <- ifelse(ck_style_table_h1$pvalue < 0.01, "***",
+                             ifelse(ck_style_table_h1$pvalue < 0.05, "**",
+                             ifelse(ck_style_table_h1$pvalue < 0.1, "*", "")))
+ck_style_table_h1$LATE_stars <- paste0(ck_style_table_h1$LATE, ck_style_table_h1$Signif)
+
+print(ck_style_table_h1)
+
+ck_style_table_h1_display <- ck_style_table_h1[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
+                                                     "Approach", "N_below_c", "N_above_c")]
+ck_style_table_h1_kable <- knitr::kable(
+  ck_style_table_h1_display,
+  caption = "Table: Mainstream Party Position Change on Environmental Position (Abou-Chadi & Krause 2020-style specification: country FE, two-way clustered SEs by country and country-election, IK bandwidth)",
+  col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c"),
+  digits = 3
+)
+writeLines(ck_style_table_h1_kable, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_ck_style_table.md"))
+print(ck_style_table_h1_kable)
+write.csv(ck_style_table_h1, "Publisering Analyse/H1/Publisering h1_ck_style_table.csv", row.names = FALSE)
 
 # ============================================================================
 # 4. H4: PARTY IDEOLOGY EFFECT
