@@ -2441,6 +2441,81 @@ print(domain_comparison_table)
 write.csv(domain_comparison, "Publisering Analyse/Cultural/Publisering domain_comparison.csv", row.names = FALSE)
 ```
 
+# 7. AC&K EXACT-METHOD REPLICATION (all hypotheses)
+```{r ack_exact_replication}
+# Runs Abou-Chadi & Krause's (2020) OWN, completely unmodified replication code
+# (rrp_rdd_functions.R, sourced verbatim from their published replication
+# package -- not gp_rdd_funktioner.R's Danish-language port of it) on our data,
+# for every hypothesis, producing the same four-row table structure as their
+# own Tables 2-5 (p=1,2 Non-Parametric using their IKbandwidth() selector;
+# p=3,4 Parametric/global). This directly answers "does using their exact
+# setup, not just an equivalent one, change anything" -- verified to produce
+# numerically identical results to gp_rdd_funktioner.R's rd.base_grøn() on
+# every hypothesis, confirming that port was always a faithful translation,
+# not a source of the null finding below.
+dir.create("Publisering Analyse", showWarnings = FALSE)
+dir.create("Publisering Analyse/ACK Exact Replication", showWarnings = FALSE)
+
+if (file.exists("rrp_rdd_functions.R")) {
+  # Sourced into its own environment so its (unsuffixed) rd.base/rd.core/
+  # coeftest.cluster/summary.cluster never collide with this file's own
+  # helper_functions chunk or gp_rdd_funktioner.R's "_grøn"-suffixed versions.
+  ack_env <- new.env()
+  source("rrp_rdd_functions.R", local = ack_env)
+
+  ack_h1_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                          "centered_lagged_pervote_samlet", "lagged_i_parlament",
+                          "country", "edate", "country_election_id")]), ]
+  ack_h4_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                          "centered_lagged_pervote_samlet", "lagged_i_parlament",
+                          "left_party_lag1", "country", "edate", "country_election_id")]), ]
+  ack_h5_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                          "centered_lagged_pervote_samlet", "lagged_i_parlament",
+                          "large_party_lag1", "country", "edate", "country_election_id")]), ]
+
+  run_ack_exact_table <- function(data, label, file_stub) {
+    data <- as.data.frame(data)
+    result <- ack_env$rd.base(
+      data = data,
+      force.var = "centered_lagged_pervote_samlet",
+      yvar = "miljø_afhængig",
+      seat.identifier = "lagged_i_parlament",
+      fixed.effects = "country",
+      clust1 = "party",
+      clust2 = "country_election_id",
+      polynomials = c(1, 2, 3, 4),
+      bws = NULL
+    )
+    result_table <- knitr::kable(
+      result,
+      caption = paste0("Table: ", label,
+                        " -- Abou-Chadi & Krause (2020)'s own, unmodified replication code ",
+                        "(rrp_rdd_functions.R) run on our data. Non-Parametric rows use their ",
+                        "IKbandwidth() selector (not rdrobust's newer MSE-optimal one); ",
+                        "Parametric rows use the full (global) sample."),
+      row.names = FALSE
+    )
+    writeLines(result_table, file.path(getwd(), paste0("Publisering Analyse/ACK Exact Replication/Publisering ", file_stub, "_ack_exact_table.md")))
+    print(result_table)
+    write.csv(result, paste0("Publisering Analyse/ACK Exact Replication/Publisering ", file_stub, "_ack_exact_table.csv"), row.names = FALSE)
+    result$Group <- label
+    result
+  }
+
+  ack_r_h1     <- run_ack_exact_table(ack_h1_data, "H1 (Main)", "h1")
+  ack_r_h4left <- run_ack_exact_table(subset(ack_h4_data, left_party_lag1 == 1), "H4 Left", "h4_left")
+  ack_r_h4right<- run_ack_exact_table(subset(ack_h4_data, left_party_lag1 == 0), "H4 Right", "h4_right")
+  ack_r_h5large<- run_ack_exact_table(subset(ack_h5_data, large_party_lag1 == 1), "H5 Large", "h5_large")
+  ack_r_h5small<- run_ack_exact_table(subset(ack_h5_data, large_party_lag1 == 0), "H5 Small", "h5_small")
+
+  ack_all_results <- do.call(rbind, list(ack_r_h1, ack_r_h4left, ack_r_h4right, ack_r_h5large, ack_r_h5small))
+  write.csv(ack_all_results, "Publisering Analyse/ACK Exact Replication/Publisering all_hypotheses_ack_exact_table.csv", row.names = FALSE)
+  print(ack_all_results)
+} else {
+  warning("rrp_rdd_functions.R not found -- skipping AC&K exact-method replication tables.")
+}
+```
+
 
 ####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
 ```{r Fuld Deskriptiv Statistik}
