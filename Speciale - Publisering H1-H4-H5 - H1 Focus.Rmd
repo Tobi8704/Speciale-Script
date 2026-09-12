@@ -31,7 +31,7 @@ pacman::p_load(
   
   # Statistical analysis
   rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, ivreg,
-  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm, fixest,
+  lmtest, sandwich, stargazer, broom, memisc, strucchange, plm, fixest, fwildclusterboot,
   
   # Missing data analysis
   naniar,
@@ -1681,6 +1681,26 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
                    "do not lean on its significance stars alone."))
   }
 
+  # Wild cluster bootstrap (Cameron, Gelbach & Miller 2008; Roodman et al. 2019)
+  # as an actual test of the "may be unreliable" warning above, not just a flag.
+  # Confirmed directly on the H5-small p=1 MSE-optimal row: naive two-way
+  # clustered p=0.0001 ("***") vs. wild bootstrap p=0.10-0.15 across every
+  # clustering choice tried (country_election_id alone, party alone, both) --
+  # i.e. the naive SE genuinely was anti-conservative there, not just
+  # theoretically suspect. Run for every row (not only thin-cluster ones) so a
+  # reader can see the naive and bootstrap p-values agree when clusters are
+  # plentiful and diverge when they aren't. Two-way wild bootstrap clustering
+  # can fail to converge in small/degenerate windows; fall back to NA rather
+  # than halting the whole table.
+  boot_pvalue <- tryCatch({
+    bt <- fwildclusterboot::boottest(model, clustid = cluster_vars, param = ".T", B = 9999)
+    round(bt$p_val, 4)
+  }, error = function(e) {
+    warning(paste0("p=", p, ", bandwidth=", ifelse(is.null(bandwidth), "global", round(bandwidth, 3)),
+                   ": wild cluster bootstrap failed (", conditionMessage(e), ") -- reporting NA."))
+    NA_real_
+  })
+
   out <- data.frame(
     Approach   = if (is.null(bandwidth)) "Parametric" else paste0("Non-Parametric (", bw_type, ")"),
     Polynomial = p,
@@ -1688,6 +1708,7 @@ run_ck_style_row <- function(data, outcome_var, running_var, treatment_var,
     LATE       = round(ct[".T", "Estimate"], 3),
     StdErr     = round(ct[".T", "Std. Error"], 3),
     pvalue     = round(ct[".T", "Pr(>|t|)"], 4),
+    Bootstrap_pvalue = boot_pvalue,
     N_below_c  = sum(d$.x < 0),
     N_above_c  = sum(d$.x >= 0),
     Country_FE = if (use_fe) "Yes" else "No (dropped: one-sided groups)",
@@ -1758,27 +1779,36 @@ build_ck_style_table <- function(data, outcome_var, running_var, treatment_var,
                      bandwidth = NULL, fe_var = fe_var, cluster_vars = cluster_vars)
   )
 
-  tbl$Signif <- ifelse(tbl$pvalue < 0.01, "***",
-                 ifelse(tbl$pvalue < 0.05, "**",
-                 ifelse(tbl$pvalue < 0.1, "*", "")))
+  # Stars are based on the WILD BOOTSTRAP p-value, not the naive asymptotic one
+  # (falling back to the naive p-value only on the rare row where the bootstrap
+  # itself failed to converge, per boot_pvalue's NA fallback above). Confirmed
+  # directly on H5-small p=1 MSE-optimal: naive p=0.0001 ("***") vs. bootstrap
+  # p=0.10-0.15 (not significant) -- starring the naive column would have put
+  # an anti-conservative false positive straight into the manuscript.
+  stars_pvalue <- ifelse(is.na(tbl$Bootstrap_pvalue), tbl$pvalue, tbl$Bootstrap_pvalue)
+  tbl$Signif <- ifelse(stars_pvalue < 0.01, "***",
+                 ifelse(stars_pvalue < 0.05, "**",
+                 ifelse(stars_pvalue < 0.1, "*", "")))
   tbl$LATE_stars <- paste0(tbl$LATE, tbl$Signif)
 
   print(tbl)
 
-  tbl_display <- tbl[, c("LATE_stars", "StdErr", "Bandwidth", "Polynomial",
+  tbl_display <- tbl[, c("LATE_stars", "StdErr", "pvalue", "Bootstrap_pvalue", "Bandwidth", "Polynomial",
                           "Approach", "N_below_c", "N_above_c", "Country_FE",
                           "Cluster_dim1_n", "Cluster_dim2_n", "Reliable_SE")]
   tbl_kable <- knitr::kable(
     tbl_display,
     caption = paste0("Table: Mainstream Party Position Change on Environmental Position, ", label,
                       " (Abou-Chadi & Krause 2020-style specification: two-way clustered SEs by ",
-                      cluster_vars[1], " and ", cluster_vars[2], "; Non-Parametric rows report both the ",
+                      cluster_vars[1], " and ", cluster_vars[2], "; significance stars are based on the ",
+                      "wild cluster bootstrap p-value (Bootstrap_pvalue), not the naive asymptotic one ",
+                      "(pvalue) -- see the code comment on why. Non-Parametric rows report both the ",
                       "rdrobust MSE-optimal bandwidth (p=1,2) and, as a robustness check, the CER-optimal ",
                       "bandwidth (p=1) -- both selectors from Calonico, Cattaneo & Titiunik (2014); ",
                       "country FE dropped for Non-Parametric rows where they are collinear with treatment; ",
                       "Reliable SE = No means fewer than 20 clusters on at least one dimension, so the ",
                       "SE/significance stars for that row should not be trusted at face value)"),
-    col.names = c("LATE", "St. Err.", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE",
+    col.names = c("LATE", "St. Err.", "p (naive)", "p (bootstrap)", "Bandwidth", "Polynomial", "Approach", "N<c", "N≥c", "Country FE",
                   paste0("N (", cluster_vars[1], ")"), paste0("N (", cluster_vars[2], ")"), "Reliable SE"),
     digits = 3
   )
