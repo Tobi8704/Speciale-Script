@@ -12,12 +12,14 @@ country's electoral threshold), treatment = `lagged_i_parlament` (Green
 party in parliament; sharp cutoff at 0).
 
 Nothing added beyond their specification: IK bandwidth, triangular kernel
-weighting, local linear (p = 1) regression with country and election-date
-fixed effects, two-way clustered SEs by party and election date (their
-actual clust1/clust2, confirmed from their published source code
-`rrp_rdd.R` / `rrp_rdd_functions.R`). No robustness battery, no bandwidth
-sensitivity check, no bias-corrected CI -- this reports exactly their
-Table 2/3/4-style estimates and nothing more, run end to end.
+weighting, country fixed effects, two-way clustered SEs by party and
+election date (their actual clust1/clust2, confirmed from their published
+source code `rrp_rdd.R` / `rrp_rdd_functions.R`). Reports their full Table
+2-style structure -- 4 rows per hypothesis, not just one: non-parametric
+p=1/p=2 (IK bandwidth, kernel-weighted) and parametric p=3/p=4 (global
+sample, unweighted). No robustness battery beyond that, no bandwidth
+sensitivity check, no bias-corrected CI -- this reports exactly what their
+paper reports and nothing more, run end to end.
 
 ## Setup
 
@@ -45,13 +47,82 @@ final_dataset <- readRDS("final_dataset_publisering.rds")
 
 ## Shared estimator
 
-Exactly Abou-Chadi & Krause's specification: IK bandwidth
-(`rdd::IKbandwidth`), triangular kernel weights (`rdd::kernelwts`), local
-linear regression with country + election-date FE, two-way clustered SEs by
-party and edate (their clust1/clust2). Returns one row: their Table-style
-estimate for whichever subgroup is passed in.
+Exactly Abou-Chadi & Krause's specification, reproducing all 4 rows of their
+Table 2 structure for a given subgroup:
 
-```{r ack-function}
+- **p = 1, p = 2** (their "Non-Parametric" rows): IK bandwidth
+  (`rdd::IKbandwidth`), triangular kernel weights (`rdd::kernelwts`), local
+  polynomial of that order around the cutoff.
+- **p = 3, p = 4** (their "Parametric" rows): same polynomial regression,
+  but unweighted and run on the full subgroup sample (no bandwidth
+  restriction) -- their global specification.
+
+All 4 rows use country fixed effects and two-way clustered SEs by party and
+edate (their clust1/clust2). Fixed effect is country only, matching their
+actual specification -- edate is their clust2 (a clustering variable), not
+a second fixed effect: adding edate as an FE alongside country made
+treatment and the running variable collinear with the FE within the narrow
+IK-bandwidth window (constant within each country-election), so the model
+couldn't be estimated.
+
+```{r ack-row-function}
+# One row of their Table 2: polynomial order p, with or without the IK
+# bandwidth restriction and kernel weighting (bandwidth = NULL means their
+# parametric/global row).
+ack_row <- function(data, p, bandwidth, approach_label) {
+  if (!is.null(bandwidth)) {
+    data$kernel_weight <- kernelwts(
+      X = data$centered_lagged_pervote_samlet,
+      center = 0,
+      bw = bandwidth,
+      kernel = "triangular"
+    )
+    data <- data[data$kernel_weight > 0, ]
+  } else {
+    data$kernel_weight <- 1
+  }
+
+  # Explicit polynomial + treatment-interaction terms (equivalent to their
+  # poly(force.var, p) + poly(force_above, p)) rather than formula-level
+  # poly()/":" syntax.
+  poly_terms  <- character(0)
+  inter_terms <- character(0)
+  for (j in 1:p) {
+    xcol <- paste0(".x", j)
+    tcol <- paste0(".Tx", j)
+    data[[xcol]] <- data$centered_lagged_pervote_samlet^j
+    data[[tcol]] <- data$lagged_i_parlament * data$centered_lagged_pervote_samlet^j
+    poly_terms  <- c(poly_terms, xcol)
+    inter_terms <- c(inter_terms, tcol)
+  }
+
+  fml <- as.formula(paste0(
+    "miljø_afhængig ~ lagged_i_parlament + ", paste(poly_terms, collapse = " + "),
+    " + ", paste(inter_terms, collapse = " + "), " | country"
+  ))
+
+  # Sharp design: lagged_i_parlament is a deterministic function of the
+  # running variable's sign, so their ivreg() (sharp treatment as its own
+  # instrument) is numerically identical to weighted OLS -- feols()
+  # reproduces the same point estimate and SE given the same weights and
+  # clustering.
+  model <- feols(fml, data = data, weights = ~kernel_weight, cluster = ~party + edate)
+
+  data.frame(
+    Approach   = approach_label,
+    Polynomial = p,
+    Bandwidth  = if (is.null(bandwidth)) NA_real_ else round(bandwidth, 3),
+    LATE       = round(coef(model)["lagged_i_parlament"], 3),
+    StdError   = round(fixest::se(model)["lagged_i_parlament"], 3),
+    pvalue     = round(fixest::pvalue(model)["lagged_i_parlament"], 4),
+    N_below_c  = sum(data$centered_lagged_pervote_samlet < 0),
+    N_above_c  = sum(data$centered_lagged_pervote_samlet >= 0)
+  )
+}
+
+# Their full 4-row Table 2 structure for one subgroup: IK bandwidth is
+# computed once per subgroup and shared by the two Non-Parametric rows,
+# exactly as in their paper.
 ack_replicate <- function(data, label) {
   bw <- IKbandwidth(
     X = data$centered_lagged_pervote_samlet,
@@ -59,46 +130,18 @@ ack_replicate <- function(data, label) {
     cutpoint = 0
   )
 
-  data$kernel_weight <- kernelwts(
-    X = data$centered_lagged_pervote_samlet,
-    center = 0,
-    bw = bw,
-    kernel = "triangular"
+  tbl <- rbind(
+    ack_row(data, p = 1, bandwidth = bw,   approach_label = "Non-Parametric"),
+    ack_row(data, p = 2, bandwidth = bw,   approach_label = "Non-Parametric"),
+    ack_row(data, p = 3, bandwidth = NULL, approach_label = "Parametric"),
+    ack_row(data, p = 4, bandwidth = NULL, approach_label = "Parametric")
   )
-  data <- data[data$kernel_weight > 0, ]
-
-  # Sharp design: lagged_i_parlament is a deterministic function of the
-  # running variable's sign, so their ivreg() (sharp treatment as its own
-  # instrument) is numerically identical to weighted OLS -- feols()
-  # reproduces the same point estimate and SE given the same weights and
-  # clustering.
-  #
-  # Fixed effect is country only, matching AC&K's actual specification --
-  # edate is their clust2 (a clustering variable), not a second fixed
-  # effect. Adding edate as an FE alongside country was our own mistake:
-  # within the narrow IK-bandwidth window, treatment and the running
-  # variable are constant within each country-election, so a country+edate
-  # FE absorbs them completely (perfect collinearity, unestimable model).
-  model <- feols(
-    miljø_afhængig ~ lagged_i_parlament + centered_lagged_pervote_samlet +
-      lagged_i_parlament:centered_lagged_pervote_samlet | country,
-    data = data,
-    weights = ~kernel_weight,
-    cluster = ~party + edate
-  )
+  tbl$Group <- label
 
   cat("\n====", label, "====\n")
-  print(summary(model))
+  print(tbl)
 
-  data.frame(
-    Group     = label,
-    Bandwidth = round(bw, 3),
-    LATE      = round(coef(model)["lagged_i_parlament"], 3),
-    StdError  = round(fixest::se(model)["lagged_i_parlament"], 3),
-    pvalue    = round(fixest::pvalue(model)["lagged_i_parlament"], 4),
-    N_below_c = sum(data$centered_lagged_pervote_samlet < 0),
-    N_above_c = sum(data$centered_lagged_pervote_samlet >= 0)
-  )
+  tbl
 }
 ```
 
@@ -151,8 +194,10 @@ ack_results <- rbind(
   h4_right_result, h4_left_result,
   h5_large_result, h5_small_result
 )
+ack_results <- ack_results[, c("Group", "Approach", "Polynomial", "Bandwidth",
+                                "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
 
-knitr::kable(ack_results, caption = "Abou-Chadi & Krause-style replication: all results")
+knitr::kable(ack_results, caption = "Abou-Chadi & Krause-style replication: all results (Table 2 structure, 4 rows per hypothesis)")
 
 dir.create("Publisering Analyse/AC&K Replication", showWarnings = FALSE)
 write.csv(ack_results, "Publisering Analyse/AC&K Replication/ack_replication_results.csv", row.names = FALSE)
