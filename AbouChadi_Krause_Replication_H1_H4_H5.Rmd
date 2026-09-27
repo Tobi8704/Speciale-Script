@@ -72,9 +72,16 @@ ack_replicate <- function(data, label) {
   # instrument) is numerically identical to weighted OLS -- feols()
   # reproduces the same point estimate and SE given the same weights and
   # clustering.
+  #
+  # Fixed effect is country only, matching AC&K's actual specification --
+  # edate is their clust2 (a clustering variable), not a second fixed
+  # effect. Adding edate as an FE alongside country was our own mistake:
+  # within the narrow IK-bandwidth window, treatment and the running
+  # variable are constant within each country-election, so a country+edate
+  # FE absorbs them completely (perfect collinearity, unestimable model).
   model <- feols(
     miljø_afhængig ~ lagged_i_parlament + centered_lagged_pervote_samlet +
-      lagged_i_parlament:centered_lagged_pervote_samlet | country + edate,
+      lagged_i_parlament:centered_lagged_pervote_samlet | country,
     data = data,
     weights = ~kernel_weight,
     cluster = ~party + edate
