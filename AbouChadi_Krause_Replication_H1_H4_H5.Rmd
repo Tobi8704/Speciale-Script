@@ -26,10 +26,17 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r packages}
-# rdd is archived on CRAN (as of 2025) -- if install.packages("rdd") fails on
-# a fresh machine, install the last CRAN release directly instead:
-#   remotes::install_version("rdd", version = "0.57", repos = "http://cran.r-project.org")
-pacman::p_load(dplyr, rdd, fixest)
+pacman::p_load(dplyr, fixest)
+
+# rdd was archived on CRAN in 2025, so pacman::p_load()'s normal
+# install.packages("rdd") fails silently and leaves IKbandwidth()
+# undefined. Install the last CRAN release straight from the archive
+# instead, if it isn't already installed.
+if (!requireNamespace("rdd", quietly = TRUE)) {
+  if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
+  remotes::install_version("rdd", version = "0.57", repos = "http://cran.r-project.org")
+}
+library(rdd)
 ```
 
 ```{r load-data}
