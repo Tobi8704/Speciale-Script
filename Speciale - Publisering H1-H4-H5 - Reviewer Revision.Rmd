@@ -2482,6 +2482,78 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
       "sample window would be left-censored even if a source existed).\n")
 }
 
+# 10d. Salience of the environmental dimension among mainstream parties ------
+# miljø_afhængig captures POSITION (log-ratio of pro-environment vs.
+# pro-growth emphasis), not SALIENCE (how much attention mainstream parties
+# give the issue at all). A null position effect doesn't tell us whether
+# mainstream parties are already treating the environment as salient -- this
+# addresses that directly: total emphasis on the dimension (per416 + per501 +
+# per410, i.e. both poles of the same policy dimension used to build
+# miljø_afhængig, as % of manifesto quasi-sentences), plotted over time and
+# compared by whether a Green party holds seats.
+if (all(c("per410", "per416", "per501", "edate") %in% names(final_dataset))) {
+  salience_data <- final_dataset %>%
+    mutate(
+      environmental_salience = per410 + per416 + per501,
+      Election_Year = if (inherits(edate, "Date")) {
+        lubridate::year(edate)
+      } else {
+        lubridate::year(lubridate::ymd(as.character(edate)))
+      }
+    ) %>%
+    filter(!is.na(environmental_salience), !is.na(Election_Year))
+
+  salience_over_time <- salience_data %>%
+    group_by(Election_Year) %>%
+    summarise(
+      gns_salience = mean(environmental_salience, na.rm = TRUE),
+      median_salience = median(environmental_salience, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    )
+
+  p4 <- ggplot(salience_over_time, aes(x = Election_Year)) +
+    geom_line(aes(y = gns_salience), color = "darkgreen", linewidth = 1) +
+    geom_point(aes(y = gns_salience), color = "darkgreen") +
+    geom_line(aes(y = median_salience), color = "darkgreen", linewidth = 1, linetype = "dashed") +
+    labs(
+      title = "Salience of the Environmental Dimension Among Mainstream Parties Over Time",
+      subtitle = "per410 + per416 + per501 (% of manifesto quasi-sentences); solid = mean, dashed = median",
+      x = "Election Year",
+      y = "Environmental Salience (%)",
+      caption = "Source: own calculations based on the Manifesto Project Dataset"
+    ) +
+    theme_minimal()
+
+  print(p4)
+  ggsave("Publisering Deskriptiv Statistik/figur4_miljø_salience_over_tid.png", p4, width = 10, height = 6, dpi = 300)
+  write.csv(salience_over_time, "Publisering Deskriptiv Statistik/figur4_miljø_salience_over_tid.csv", row.names = FALSE)
+
+  # Direct answer to "do mainstream parties already take it seriously, even
+  # without a Green party in parliament": salience conditional on whether a
+  # Green party currently holds seats.
+  if ("lagged_i_parlament" %in% names(salience_data)) {
+    salience_by_green_status <- salience_data %>%
+      filter(!is.na(lagged_i_parlament)) %>%
+      mutate(Green_i_parlament = ifelse(lagged_i_parlament == 1, "Green party in parliament",
+                                         "No Green party in parliament")) %>%
+      group_by(Green_i_parlament) %>%
+      summarise(
+        gns_salience = round(mean(environmental_salience, na.rm = TRUE), 3),
+        median_salience = round(median(environmental_salience, na.rm = TRUE), 3),
+        n = n(),
+        .groups = "drop"
+      )
+
+    tabel15 <- kable(salience_by_green_status,
+                   caption = "Tabel A15: Environmental salience among mainstream parties, by Green party parliamentary status",
+                   format = "markdown")
+    writeLines(tabel15, "Publisering Deskriptiv Statistik/tabel15_salience_by_green_status.md")
+    print(tabel15)
+    write.csv(salience_by_green_status, "Publisering Deskriptiv Statistik/tabel15_salience_by_green_status.csv", row.names = FALSE)
+  }
+}
+
 
 # 11. Samlet tabel -----
 # Lav en samlet dokument med alle tabeller
