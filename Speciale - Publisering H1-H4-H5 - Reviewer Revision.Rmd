@@ -2430,16 +2430,57 @@ if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
   write.csv(case_distribution_decade, "Publisering Deskriptiv Statistik/tabel13_case_distribution_decade.csv", row.names = FALSE)
 }
 
-# Note on formation-to-parliament-entry lag (reviewer question): this cannot be
-# computed from the current data. MARPOR/ParlGov coverage begins in the early
-# 1970s for most countries, so for any Green party first observed at the start of
-# the sample we cannot tell whether that observation is close to the party's actual
-# founding or the party already existed for years beforehand (left-censoring) -- no
-# founding-date variable exists in either MARPOR or ParlGov for this purpose. This
-# is documented here rather than computed with placeholder/incomplete dates.
-cat("\nNote: Green party formation-to-parliament-entry lag is not computed --",
-    "MARPOR/ParlGov data start ~1972, so founding dates before the sample window",
-    "are left-censored and unknown for parties already active at that point.\n")
+# 10c. Formation-to-parliament-entry lag (reviewer question) ------
+# Partial update: no founding-date variable exists in MARPOR/ParlGov, but
+# van Haute's edited volume ("Green Parties in Europe", Table 15.1, p.316-318)
+# reports each Green party's origin/declaration year for a subset of countries.
+# This is COUNTRY-LEVEL, not party-level: the merge in section 1.6/1.7 of the
+# data-construction pipeline keeps only countryname+edate for the Green party
+# side (its own party/partyabbrev column is dropped), so for countries with
+# more than one historical Green party (Switzerland, Bulgaria, Slovenia,
+# Romania, Hungary, Croatia) this uses the EARLIEST of that country's listed
+# parties rather than matching the specific one -- see green_party_origin_years_vanHaute.csv's
+# source_note column. This table was also transcribed from PDF text extraction
+# (no visual table rendering available), so treat it as a secondary, partial
+# source -- spot-check a few rows against the original chapter before citing.
+# Entry year itself is NOT taken from the book -- it's derived from this
+# project's own i_parlament variable, which is more directly comparable to how
+# the RDD treatment is defined than the book's "Representation" column.
+green_origins <- read_csv("green_party_origin_years_vanHaute.csv", show_col_types = FALSE)
+
+if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
+  first_entry_year <- final_dataset %>%
+    mutate(
+      Election_Year = if (inherits(edate, "Date")) {
+        lubridate::year(edate)
+      } else {
+        lubridate::year(lubridate::ymd(as.character(edate)))
+      }
+    ) %>%
+    filter(!is.na(Election_Year), i_parlament == 1) %>%
+    group_by(countryname) %>%
+    summarise(first_entry_year = min(Election_Year), .groups = "drop")
+
+  formation_to_entry_lag <- first_entry_year %>%
+    inner_join(green_origins, by = "countryname") %>%
+    mutate(formation_to_entry_lag_years = first_entry_year - origin_year) %>%
+    dplyr::select(countryname, party_abbrev, origin_year, first_entry_year,
+                   formation_to_entry_lag_years, source_note)
+
+  tabel14 <- kable(formation_to_entry_lag,
+                 caption = "Tabel A14: Green party formation-to-parliament-entry lag (partial, country-level, source: van Haute ed., Table 15.1)",
+                 format = "markdown")
+  writeLines(tabel14, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.md")
+  print(tabel14)
+  write.csv(formation_to_entry_lag, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.csv", row.names = FALSE)
+
+  cat("\nNote: formation-to-entry lag computed for", nrow(formation_to_entry_lag),
+      "of", n_distinct(final_dataset$countryname),
+      "countries -- only those covered by van Haute's Table 15.1. Remaining",
+      "countries still lack a founding-date source and are left uncomputed",
+      "(MARPOR/ParlGov coverage begins ~1972, so founding dates before the",
+      "sample window would be left-censored even if a source existed).\n")
+}
 
 
 # 11. Samlet tabel -----
