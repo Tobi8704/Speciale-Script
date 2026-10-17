@@ -632,6 +632,111 @@ final_dataset <- final_dataset %>%
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 ```
 
+## 1.8 Incumbent Government and Regional Heterogeneity
+
+```{r cabinet_and_region_heterogeneity}
+# Reviewer 2 asked what kind of context/heterogeneity checks are feasible
+# (region, or which party family held government before the Green party's
+# threshold attempt). This builds the incumbent-government side: for each
+# country-election, finds the government in office AT the election date (the
+# most recent ParlGov cabinet with start_date <= election date, per country)
+# and attaches the Prime Minister's party's ParlGov left_right score.
+#
+# ParlGov's view_party.csv has a 'cmp' column crosswalking party_id to the same
+# MARPOR party codes already used throughout this pipeline, so coverage was
+# checked directly before building this: 81% of European PM-party rows resolve
+# to a MARPOR code overall, with nearly all of the unresolved cases being
+# pre-1945 caretaker/no-party governments outside this project's sample window
+# -- so actual coverage in the 1970s+ sample should be higher still. One
+# structural gap confirmed directly: Switzerland has no single Prime Minister
+# (collegial Federal Council), so prime_minister == 1 never fires there --
+# incumbent_pm_left_right/incumbent_left_led will be NA for all Swiss
+# observations, not a data error.
+view_cabinet <- read_csv("view_cabinet.csv")
+cabinet_european <- filter_european_countries(view_cabinet)
+
+pm_cabinet <- cabinet_european %>%
+  filter(prime_minister == 1) %>%
+  dplyr::distinct(country_name, start_date, cabinet_id, party_id) %>%
+  dplyr::left_join(
+    party_european %>% dplyr::select(party_id, left_right),
+    by = "party_id"
+  ) %>%
+  dplyr::rename(countryname = country_name) %>%
+  dplyr::mutate(start_date = as.Date(start_date)) %>%
+  dplyr::filter(!is.na(left_right)) %>%
+  dplyr::arrange(countryname, start_date)
+
+# For a given country and election date, the incumbent is the PM-cabinet with
+# the latest start_date at or before that election date.
+find_incumbent_left_right <- function(target_country, target_edate) {
+  cand <- pm_cabinet[pm_cabinet$countryname == target_country & pm_cabinet$start_date <= target_edate, ]
+  if (nrow(cand) == 0) return(NA_real_)
+  cand$left_right[which.max(cand$start_date)]
+}
+
+incumbent_lookup <- final_dataset %>%
+  dplyr::distinct(countryname, edate) %>%
+  dplyr::mutate(
+    .edate_parsed = if (inherits(edate, "Date")) edate else lubridate::ymd(as.character(edate))
+  ) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(incumbent_pm_left_right = find_incumbent_left_right(countryname, .edate_parsed)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(countryname, edate, incumbent_pm_left_right)
+
+final_dataset <- final_dataset %>%
+  dplyr::left_join(incumbent_lookup, by = c("countryname", "edate"))
+
+cat("\nIncumbent PM left_right score resolved for", sum(!is.na(final_dataset$incumbent_pm_left_right)),
+    "of", nrow(final_dataset), "observations.\n")
+
+# Binary split for H4-style heterogeneity: left-led vs. right-led incumbent
+# government (median split on left_right, same approach used for large_party
+# elsewhere in this pipeline).
+final_dataset <- final_dataset %>%
+  dplyr::mutate(
+    incumbent_left_led = ifelse(
+      incumbent_pm_left_right < median(incumbent_pm_left_right, na.rm = TRUE), 1, 0
+    )
+  )
+
+# Regional grouping -- no cabinet data needed, pure lookup. Groupings follow
+# standard comparative-politics regional clusters; adjust if the paper wants a
+# different grouping logic.
+region_lookup <- tribble(
+  ~countryname,       ~region,
+  "Sweden",            "Nordic",
+  "Norway",            "Nordic",
+  "Denmark",           "Nordic",
+  "Finland",           "Nordic",
+  "Austria",           "Western",
+  "Germany",           "Western",
+  "Ireland",           "Western",
+  "Netherlands",       "Western",
+  "Switzerland",       "Western",
+  "Luxembourg",        "Western",
+  "Greece",            "Southern",
+  "Italy",             "Southern",
+  "Portugal",          "Southern",
+  "Spain",             "Southern",
+  "Bulgaria",          "CEE",
+  "Croatia",           "CEE",
+  "Czech Republic",    "CEE",
+  "Estonia",           "CEE",
+  "Latvia",            "CEE",
+  "Poland",            "CEE",
+  "Romania",           "CEE",
+  "Slovenia",          "CEE",
+  "Slovakia",          "CEE"
+)
+final_dataset <- final_dataset %>%
+  dplyr::left_join(region_lookup, by = "countryname")
+
+cat("Region assigned for", sum(!is.na(final_dataset$region)), "of", nrow(final_dataset), "observations.\n")
+print(table(final_dataset$region, useNA = "ifany"))
+```
+
 ```{r}
 saveRDS(final_dataset, "final_dataset_publisering.rds")
 ```

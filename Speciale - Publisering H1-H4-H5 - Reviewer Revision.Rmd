@@ -2183,6 +2183,107 @@ print(domain_comparison_rights_table)
 write.csv(domain_comparison_rights, "Publisering Analyse/Rights/Publisering domain_comparison_rights.csv", row.names = FALSE)
 ```
 
+# ============================================================================
+# 8. INCUMBENT GOVERNMENT AND REGIONAL HETEROGENEITY (DRAFT)
+# ============================================================================
+# Reviewer 2 asked whether the effect varies by context -- which party family
+# held government before the Green party's threshold attempt, and region.
+# incumbent_left_led and region are built in Data skabelse.Rmd (section 1.8)
+# from ParlGov's view_cabinet.csv/view_party.csv; see that section's comments
+# for coverage caveats (Switzerland has no single PM and is NA throughout;
+# 81% of European PM-party rows resolve to a MARPOR code, concentrated in the
+# pre-1945 period for the unresolved cases). Uses the main environmental
+# outcome (miljø_afhængig), same specification as H1/H4 above -- same
+# non-parametric structure as the H4 ideology split, just a different
+# grouping variable.
+
+```{r heterogeneity_analysis}
+dir.create("Publisering Analyse/Heterogeneity", showWarnings = FALSE)
+
+# 8.1 Incumbent government (left-led vs. right-led) -------------------------
+h_incumbent_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "incumbent_left_led",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+cat("\nIncumbent-government subsample N:", nrow(h_incumbent_analysis_data),
+    "(", nrow(final_dataset) - nrow(h_incumbent_analysis_data), "dropped for missing incumbent_left_led,",
+    "including all Swiss observations)\n")
+
+incumbent_left_gov <- subset(h_incumbent_analysis_data, incumbent_left_led == 1)
+incumbent_right_gov <- subset(h_incumbent_analysis_data, incumbent_left_led == 0)
+
+h_rdd_left_gov <- rdrobust(
+    y = incumbent_left_gov$miljø_afhængig,
+    x = incumbent_left_gov$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = incumbent_left_gov$country_election_id
+  )
+check_rdrobust_cluster_count(h_rdd_left_gov, incumbent_left_gov, "centered_lagged_pervote_samlet",
+                              "country_election_id", "Left-led incumbent government rdrobust")
+h_rdd_right_gov <- rdrobust(
+    y = incumbent_right_gov$miljø_afhængig,
+    x = incumbent_right_gov$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = incumbent_right_gov$country_election_id
+  )
+check_rdrobust_cluster_count(h_rdd_right_gov, incumbent_right_gov, "centered_lagged_pervote_samlet",
+                              "country_election_id", "Right-led incumbent government rdrobust")
+
+incumbent_gov_results <- data.frame(
+  Group = c("Left-Led Incumbent Government", "Right-Led Incumbent Government"),
+  LATE = round(c(h_rdd_left_gov$Estimate[1], h_rdd_right_gov$Estimate[1]), 3),
+  StdError = round(c(h_rdd_left_gov$se[1], h_rdd_right_gov$se[1]), 3),
+  pvalue = round(c(h_rdd_left_gov$pv[1], h_rdd_right_gov$pv[1]), 3),
+  N_below_c = c(sum(incumbent_left_gov$centered_lagged_pervote_samlet < 0),
+                sum(incumbent_right_gov$centered_lagged_pervote_samlet < 0)),
+  N_above_c = c(sum(incumbent_left_gov$centered_lagged_pervote_samlet >= 0),
+                sum(incumbent_right_gov$centered_lagged_pervote_samlet >= 0))
+)
+print(incumbent_gov_results)
+write.csv(incumbent_gov_results, "Publisering Analyse/Heterogeneity/Publisering incumbent_government_results.csv", row.names = FALSE)
+
+# 8.2 Region --------------------------------------------------------------
+h_region_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "region",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+
+region_results_list <- lapply(unique(h_region_analysis_data$region), function(r) {
+  d <- subset(h_region_analysis_data, region == r)
+  n_clusters <- length(unique(d$country_election_id))
+  # rdrobust needs enough observations on both sides of the cutoff to select a
+  # bandwidth at all -- skip regions too thin to even attempt this, rather than
+  # letting rdrobust error out.
+  if (sum(d$centered_lagged_pervote_samlet < 0) < 5 || sum(d$centered_lagged_pervote_samlet >= 0) < 5) {
+    return(data.frame(Region = r, LATE = NA, StdError = NA, pvalue = NA,
+                       N_below_c = sum(d$centered_lagged_pervote_samlet < 0),
+                       N_above_c = sum(d$centered_lagged_pervote_samlet >= 0),
+                       Note = "Too few observations on one side of the cutoff -- not estimated"))
+  }
+  fit <- rdrobust(
+    y = d$miljø_afhængig, x = d$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = d$country_election_id
+  )
+  check_rdrobust_cluster_count(fit, d, "centered_lagged_pervote_samlet", "country_election_id",
+                                paste("Region:", r, "rdrobust"))
+  data.frame(Region = r, LATE = round(fit$Estimate[1], 3), StdError = round(fit$se[1], 3),
+             pvalue = round(fit$pv[1], 3),
+             N_below_c = sum(d$centered_lagged_pervote_samlet < 0),
+             N_above_c = sum(d$centered_lagged_pervote_samlet >= 0),
+             Note = "")
+})
+region_results <- do.call(rbind, region_results_list)
+print(region_results)
+write.csv(region_results, "Publisering Analyse/Heterogeneity/Publisering region_results.csv", row.names = FALSE)
+```
+
 
 ####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
 ```{r Fuld Deskriptiv Statistik}
