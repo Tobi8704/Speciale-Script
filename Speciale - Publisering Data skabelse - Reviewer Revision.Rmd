@@ -521,9 +521,9 @@ if (!"per416_2" %in% names(full_dataset) && "per416_2.x" %in% names(full_dataset
 # Select final columns and remove duplicates
 final_dataset <- full_dataset %>%
   dplyr::select(
-    countryname, edate, country, party, oecdmember, eumember, date, 
+    countryname, edate, country, party, oecdmember, eumember, date,
     partyname, partyabbrev, parfam, absseat, per410, per416, per501, per416_2,
-    per607, per608,
+    per607, per608, per201, per202, per503, per705,
     threshold, threshold_lagged, pervote_samlet, lagged_pervote_samlet,
     i_parlament, lagged_i_parlament, avg_pervote_main, rile, rile_lowe, pervote_main
   ) %>%
@@ -557,6 +557,28 @@ final_dataset <- final_dataset %>%
     # dimension for comparison. Same log-ratio construction as miljø_afhængig, using
     # MARPOR's multiculturalism categories (per607 = positive, per608 = negative).
     kultur_afhaengig = log((per607 + 0.5) / (per608 + 0.5)),
+
+    # Third outcome dimension: women's/minority rights, per the reviewer note
+    # specifying per201 (Freedom and Human Rights) and per202 (Democracy).
+    # FLAG: unlike miljø_afhængig (per416+per501 vs. per410) and kultur_afhaengig
+    # (per607 vs. per608), per201 and per202 are NOT a positive/negative pair in
+    # MARPOR's coding scheme -- both are single, salience-only categories with no
+    # opposing pole. A log-ratio of the two is not a directional "position" measure
+    # the way the other two outcomes are; it mainly contrasts how much a manifesto
+    # emphasizes human-rights framing vs. democracy framing, which is a different
+    # thing from a pro-/anti-women's-or-minority-rights position. Built exactly as
+    # specified for this draft/markup, but see rettigheder_afhaengig_alt below for
+    # a construction that actually has an opposing pole and more plausibly captures
+    # a minority-rights POSITION, matching how miljø_afhængig/kultur_afhaengig are built.
+    rettigheder_afhaengig = log((per201 + 0.5) / (per202 + 0.5)),
+
+    # Alternative construction: per705 (Underprivileged Minority Groups: positive)
+    # against per608 (Multiculturalism: negative) as the opposing pole -- the same
+    # logic Abou-Chadi & Krause themselves use for radical-right contagion (their
+    # outcome is built from per607/per608), just anchored on minority-group support
+    # specifically rather than multiculturalism generally. Recommended over
+    # rettigheder_afhaengig above if this outcome is kept beyond the draft stage.
+    rettigheder_afhaengig_alt = log((per705 + 0.5) / (per608 + 0.5)),
 
     # Cluster identifier for RDD standard errors: the Green-party running variable and
     # treatment status are assigned at the country-election level and are therefore

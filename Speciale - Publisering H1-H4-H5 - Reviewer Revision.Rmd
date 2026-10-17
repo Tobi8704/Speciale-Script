@@ -2014,6 +2014,175 @@ print(domain_comparison_table)
 write.csv(domain_comparison, "Publisering Analyse/Cultural/Publisering domain_comparison.csv", row.names = FALSE)
 ```
 
+# ============================================================================
+# 7. WOMEN'S / MINORITY RIGHTS OUTCOME (DRAFT / MARKUP)
+# ============================================================================
+# DRAFT -- not yet a finished outcome, built to the same H1/H4/H5 structure as
+# the cultural liberalism section above so the two can be compared directly.
+#
+# Primary variable used below: rettigheder_afhaengig_alt = log((per705 + 0.5) /
+# (per608 + 0.5)) -- per705 (Underprivileged Minority Groups: positive) against
+# per608 (Multiculturalism: negative) as the opposing pole. This mirrors how
+# Abou-Chadi & Krause themselves build their radical-right contagion outcome
+# (per607/per608) and how kultur_afhaengig is built here: a genuine positive
+# vs. negative pole, so the log-ratio is an actual POSITION measure.
+#
+# The reviewer note named per201 (Freedom and Human Rights) and per202
+# (Democracy) specifically. Both are single, salience-only MARPOR categories
+# with NO opposing negative pole -- unlike per416/per410 or per607/per608.
+# log((per201+0.5)/(per202+0.5)) (built in Data skabelse.Rmd as
+# rettigheder_afhaengig) mainly contrasts human-rights framing against
+# democracy framing, not a pro-/anti-minority-rights position. It's run once
+# below for H1 only, for direct comparison -- flag this conceptual gap before
+# using it as the paper's actual outcome.
+
+```{r rights_analysis}
+dir.create("Publisering Analyse/Rights", showWarnings = FALSE)
+
+# H1-equivalent: main effect on minority-rights position (primary construction) --
+h1_rights_analysis_data <- final_dataset[complete.cases(final_dataset[, c("rettigheder_afhaengig_alt",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+
+h1_rdd_rights <- rdrobust(
+  y = h1_rights_analysis_data$rettigheder_afhaengig_alt,
+  x = h1_rights_analysis_data$centered_lagged_pervote_samlet,
+  c = 0,
+  p = 1,
+  kernel = "triangular",
+  bwselect = "mserd",
+  cluster = h1_rights_analysis_data$country_election_id
+)
+check_rdrobust_cluster_count(h1_rdd_rights, h1_rights_analysis_data, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H1 rights rdrobust")
+summary(h1_rdd_rights)
+
+main_results_rights <- data.frame(
+  Outcome = "Minority Rights Position (per705/per608)",
+  Bandwidth = round(h1_rdd_rights$bws[1, 1], 3),
+  LATE = round(h1_rdd_rights$Estimate[1], 3),
+  StdError = round(h1_rdd_rights$se[1], 3),
+  pvalue = round(h1_rdd_rights$pv[1], 3),
+  CI_Lower = round(h1_rdd_rights$ci[1, 1], 3),
+  CI_Upper = round(h1_rdd_rights$ci[1, 2], 3)
+)
+main_results_rights_table <- knitr::kable(main_results_rights,
+                                  caption = "Main RDD Results for H1 - Minority Rights Outcome (DRAFT)",
+                                  col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
+                                               "p-value", "95% CI Lower", "95% CI Upper"))
+writeLines(main_results_rights_table, file.path(getwd(), "Publisering Analyse/Rights/Publisering h1_rights_main_results.md"))
+print(main_results_rights_table)
+write.csv(main_results_rights, "Publisering Analyse/Rights/Publisering h1_rights_main_results.csv", row.names = FALSE)
+
+# Literal per201/per202 construction, H1 only, for direct comparison -- see the
+# conceptual flag above before trusting this one.
+h1_rdd_rights_literal <- rdrobust(
+  y = h1_rights_analysis_data$rettigheder_afhaengig,
+  x = h1_rights_analysis_data$centered_lagged_pervote_samlet,
+  c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+  cluster = h1_rights_analysis_data$country_election_id
+)
+check_rdrobust_cluster_count(h1_rdd_rights_literal, h1_rights_analysis_data, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H1 rights (literal per201/per202) rdrobust")
+cat("\nH1, literal per201/per202 construction: LATE =", round(h1_rdd_rights_literal$Estimate[1], 3),
+    ", p =", round(h1_rdd_rights_literal$pv[1], 3),
+    "-- compare against the per705/per608 result above; large disagreement between",
+    "the two would itself be evidence that per201/per202 isn't capturing a",
+    "minority-rights position.\n")
+
+# H4-equivalent: left/right moderation -------------------------------------
+h4_rights_analysis_data <- final_dataset[complete.cases(final_dataset[, c("rettigheder_afhaengig_alt",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "left_party_lag1",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+clean_data_right_party_rights <- subset(h4_rights_analysis_data, left_party_lag1 == 0)
+clean_data_left_party_rights <- subset(h4_rights_analysis_data, left_party_lag1 == 1)
+
+h4_rdd_right_rights <- rdrobust(
+    y = clean_data_right_party_rights$rettigheder_afhaengig_alt,
+    x = clean_data_right_party_rights$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = clean_data_right_party_rights$country_election_id
+  )
+check_rdrobust_cluster_count(h4_rdd_right_rights, clean_data_right_party_rights, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 right-wing rights rdrobust")
+h4_rdd_left_rights <- rdrobust(
+    y = clean_data_left_party_rights$rettigheder_afhaengig_alt,
+    x = clean_data_left_party_rights$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = clean_data_left_party_rights$country_election_id
+  )
+check_rdrobust_cluster_count(h4_rdd_left_rights, clean_data_left_party_rights, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H4 left-wing rights rdrobust")
+
+h4_rights_results <- data.frame(
+  Group = c("Right-Wing Parties", "Left-Wing Parties"),
+  LATE = round(c(h4_rdd_right_rights$Estimate[1], h4_rdd_left_rights$Estimate[1]), 3),
+  StdError = round(c(h4_rdd_right_rights$se[1], h4_rdd_left_rights$se[1]), 3),
+  pvalue = round(c(h4_rdd_right_rights$pv[1], h4_rdd_left_rights$pv[1]), 3)
+)
+print(h4_rights_results)
+write.csv(h4_rights_results, "Publisering Analyse/Rights/Publisering h4_rights_results.csv", row.names = FALSE)
+
+# H5-equivalent: large/small party moderation -------------------------------
+h5_rights_analysis_data <- final_dataset[complete.cases(final_dataset[, c("rettigheder_afhaengig_alt",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "large_party_lag1",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+large_parties_rights <- subset(h5_rights_analysis_data, large_party_lag1 == 1)
+small_parties_rights <- subset(h5_rights_analysis_data, large_party_lag1 == 0)
+
+h5_rdd_large_rights <- rdrobust(
+    y = large_parties_rights$rettigheder_afhaengig_alt,
+    x = large_parties_rights$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = large_parties_rights$country_election_id
+  )
+check_rdrobust_cluster_count(h5_rdd_large_rights, large_parties_rights, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 large-parties rights rdrobust")
+h5_rdd_small_rights <- rdrobust(
+    y = small_parties_rights$rettigheder_afhaengig_alt,
+    x = small_parties_rights$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = small_parties_rights$country_election_id
+  )
+check_rdrobust_cluster_count(h5_rdd_small_rights, small_parties_rights, "centered_lagged_pervote_samlet",
+                              "country_election_id", "H5 small-parties rights rdrobust")
+
+h5_rights_results <- data.frame(
+  Group = c("Large Parties", "Small Parties"),
+  LATE = round(c(h5_rdd_large_rights$Estimate[1], h5_rdd_small_rights$Estimate[1]), 3),
+  StdError = round(c(h5_rdd_large_rights$se[1], h5_rdd_small_rights$se[1]), 3),
+  pvalue = round(c(h5_rdd_large_rights$pv[1], h5_rdd_small_rights$pv[1]), 3)
+)
+print(h5_rights_results)
+write.csv(h5_rights_results, "Publisering Analyse/Rights/Publisering h5_rights_results.csv", row.names = FALSE)
+
+# Side-by-side: environmental vs. cultural vs. minority-rights main effect ----
+domain_comparison_rights <- data.frame(
+  Domain = c("Environmental (miljø_afhængig)", "Cultural Liberalism (kultur_afhaengig)",
+             "Minority Rights (rettigheder_afhaengig_alt)"),
+  LATE = round(c(h1_rdd$Estimate[1], h1_rdd_cultural$Estimate[1], h1_rdd_rights$Estimate[1]), 3),
+  StdError = round(c(h1_rdd$se[1], h1_rdd_cultural$se[1], h1_rdd_rights$se[1]), 3),
+  pvalue = round(c(h1_rdd$pv[1], h1_rdd_cultural$pv[1], h1_rdd_rights$pv[1]), 3),
+  N = c(sum(h1_rdd$N_h), sum(h1_rdd_cultural$N_h), sum(h1_rdd_rights$N_h))
+)
+domain_comparison_rights_table <- knitr::kable(domain_comparison_rights,
+  caption = "Table: Green Party Parliamentary Entry Effect Across Issue Domains, Incl. Minority Rights (DRAFT)")
+writeLines(domain_comparison_rights_table, file.path(getwd(), "Publisering Analyse/Rights/Publisering domain_comparison_rights.md"))
+print(domain_comparison_rights_table)
+write.csv(domain_comparison_rights, "Publisering Analyse/Rights/Publisering domain_comparison_rights.csv", row.names = FALSE)
+```
+
 
 ####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
 ```{r Fuld Deskriptiv Statistik}
