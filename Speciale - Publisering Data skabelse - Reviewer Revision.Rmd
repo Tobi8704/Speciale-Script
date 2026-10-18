@@ -652,6 +652,18 @@ final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 # (collegial Federal Council), so prime_minister == 1 never fires there --
 # incumbent_pm_left_right/incumbent_left_led will be NA for all Swiss
 # observations, not a data error.
+#
+# final_dataset arrives here still GROUPED BY PARTY -- the lagged-variable
+# blocks above (left_party_lag1/large_party_lag1/large_party_alt_lag1) never
+# call ungroup() after their group_by(party). That was harmless before since
+# nothing downstream needed cross-party aggregation, but distinct(countryname,
+# edate) below would silently respect that grouping and fail to collapse
+# different parties sharing the same election into one row -- confirmed
+# directly: this caused every party in an affected election to multiply by
+# however many parties shared that election (the left_join below then fans
+# out further). Explicit ungroup() fixes it.
+final_dataset <- final_dataset %>% dplyr::ungroup()
+
 view_cabinet <- read_csv("view_cabinet.csv")
 cabinet_european <- filter_european_countries(view_cabinet)
 
