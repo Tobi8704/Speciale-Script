@@ -423,7 +423,7 @@ main_results_table <- knitr::kable(main_results,
 
 writeLines(main_results_table, file.path(getwd(), "Publisering Analyse/H1/Publisering h1_main_results.md"))
 print(main_results_table)
-write.csv(main_results_table, "Publisering Analyse/H1/Publisering h1_main_results.csv", row.names = FALSE)  
+write.csv(main_results, "Publisering Analyse/H1/Publisering h1_main_results.csv", row.names = FALSE)
 
 
 # 3. ROBUSTNESS CHECKS ----------------
@@ -969,7 +969,7 @@ check_rdrobust_cluster_count(h4_rdd_right, clean_data_right_party, "centered_lag
   summary(h4_rdd_right)
 
 # Opret tabel direkte fra h4_left_rdd objektet
-main_results_table_h4_right <- data.frame(
+main_results_h4_right <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h4_rdd_right$bws[1, 1], 3),
   LATE = round(h4_rdd_right$Estimate[1], 3),
@@ -985,7 +985,7 @@ main_results_table_h4_right <- data.frame(
 )
 
 # Create a nice table for presentation
-main_results_table_h4_right <- knitr::kable(main_results_table_h4_right,
+main_results_table_h4_right <- knitr::kable(main_results_h4_right,
                                   caption = "Main RDD Results for H4_right (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
@@ -995,7 +995,7 @@ main_results_table_h4_right <- knitr::kable(main_results_table_h4_right,
 # Save the table to a file
 writeLines(main_results_table_h4_right, file.path(getwd(), "Publisering Analyse/H4/h4_right_main_results.md"))
 print(main_results_table_h4_right)
-write.csv(main_results_table_h4_right, "Publisering Analyse/H4/Publisering h4_right_main_results.csv", row.names = FALSE)  
+write.csv(main_results_h4_right, "Publisering Analyse/H4/Publisering h4_right_main_results.csv", row.names = FALSE)
 
 h4_rdd_left <- rdrobust(
     y = clean_data_left_party$miljø_afhængig,
@@ -1011,7 +1011,7 @@ check_rdrobust_cluster_count(h4_rdd_left, clean_data_left_party, "centered_lagge
   summary(h4_rdd_left)
 
 # Opret tabel direkte fra h4_left_rdd objektet
-main_results_table_h4_left <- data.frame(
+main_results_h4_left <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h4_rdd_left$bws[1, 1], 3),
   LATE = round(h4_rdd_left$Estimate[1], 3),
@@ -1027,7 +1027,7 @@ main_results_table_h4_left <- data.frame(
 )
 
 # Create a nice table for presentation
-main_results_table_h4_left <- knitr::kable(main_results_table_h4_left,
+main_results_table_h4_left <- knitr::kable(main_results_h4_left,
                                   caption = "Main RDD Results for H4_left (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
@@ -1037,7 +1037,7 @@ main_results_table_h4_left <- knitr::kable(main_results_table_h4_left,
 # Save the table to a file
 writeLines(main_results_table_h4_left, file.path(getwd(), "Publisering Analyse/H4/h4_left_main_results.md"))
 print(main_results_table_h4_left)
-write.csv(main_results_table_h4_left, "Publisering Analyse/H4/Publisering h4_left_main_results.csv", row.names = FALSE)  
+write.csv(main_results_h4_left, "Publisering Analyse/H4/Publisering h4_left_main_results.csv", row.names = FALSE)
 
 # Beregn forskellen i LATE (behandlingseffekt)
 difference_effect <- h4_rdd_right$Estimate[1] - h4_rdd_left$Estimate[1]
@@ -1192,7 +1192,7 @@ check_rdrobust_cluster_count(h5_large_rdd, large_parties, "centered_lagged_pervo
                               "country_election_id", "H5 large-parties rdrobust")
   summary(h5_large_rdd)
 
-main_results_table_h5_large <- data.frame(
+main_results_h5_large <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h5_large_rdd$bws[1, 1], 3),
   LATE = round(h5_large_rdd$Estimate[1], 3),
@@ -1208,7 +1208,7 @@ main_results_table_h5_large <- data.frame(
 )
 
 # Create a nice table for presentation
-main_results_table_h5_large <- knitr::kable(main_results_table_h5_large,
+main_results_table_h5_large <- knitr::kable(main_results_h5_large,
                                   caption = "Main RDD Results for H5_large (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
@@ -1218,7 +1218,7 @@ main_results_table_h5_large <- knitr::kable(main_results_table_h5_large,
 # Save the table to a file
 writeLines(main_results_table_h5_large, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_large_main_results.md"))
 print(main_results_table_h5_large)
-write.csv(main_results_table_h5_large, "Publisering Analyse/H5/Publisering h5_large_main_results.csv", row.names = FALSE) 
+write.csv(main_results_h5_large, "Publisering Analyse/H5/Publisering h5_large_main_results.csv", row.names = FALSE)
   
 h5_small_rdd <- rdrobust(
     y = small_parties$miljø_afhængig,
@@ -1232,7 +1232,7 @@ h5_small_rdd <- rdrobust(
 check_rdrobust_cluster_count(h5_small_rdd, small_parties, "centered_lagged_pervote_samlet",
                               "country_election_id", "H5 small-parties rdrobust")
 
-main_results_table_h5_small <- data.frame(
+main_results_h5_small <- data.frame(
   Outcome = "Climate Position",
   Bandwidth = round(h5_small_rdd$bws[1, 1], 3),
   LATE = round(h5_small_rdd$Estimate[1], 3),
@@ -1247,7 +1247,7 @@ main_results_table_h5_small <- data.frame(
   CI_Upper_robust = round(h5_small_rdd$ci[3, 2], 3)
 )
 
-main_results_table_h5_small <- knitr::kable(main_results_table_h5_small,
+main_results_table_h5_small <- knitr::kable(main_results_h5_small,
                                   caption = "Main RDD Results for H5_small (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
@@ -1257,7 +1257,7 @@ main_results_table_h5_small <- knitr::kable(main_results_table_h5_small,
 # Save the table to a file
 writeLines(main_results_table_h5_small, file.path(getwd(), "Publisering Analyse/H5/Publisering h5_small_main_results.md"))
 print(main_results_table_h5_small)
-write.csv(main_results_table_h5_small, "Publisering Analyse/H5/Publisering h5_small_main_results.csv", row.names = FALSE) 
+write.csv(main_results_h5_small, "Publisering Analyse/H5/Publisering h5_small_main_results.csv", row.names = FALSE)
 
 # Beregn forskellen i LATE (behandlingseffekt)
 difference_effect <- h5_large_rdd$Estimate[1] - h5_small_rdd$Estimate[1]
