@@ -2012,6 +2012,29 @@ domain_comparison_table <- knitr::kable(domain_comparison,
 writeLines(domain_comparison_table, file.path(getwd(), "Publisering Analyse/Cultural/Publisering domain_comparison.md"))
 print(domain_comparison_table)
 write.csv(domain_comparison, "Publisering Analyse/Cultural/Publisering domain_comparison.csv", row.names = FALSE)
+
+# Forest-style comparison plot across issue domains -- point estimate (LATE)
+# with an approximate 95% CI (LATE +/- 1.96*StdError), since domain_comparison
+# itself only carries the point estimate and SE, not the CI bounds.
+domain_comparison_plot_data <- domain_comparison %>%
+  mutate(
+    CI_Lower = LATE - 1.96 * StdError,
+    CI_Upper = LATE + 1.96 * StdError
+  )
+
+domain_comparison_plot <- ggplot(domain_comparison_plot_data, aes(x = Domain, y = LATE)) +
+  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  coord_flip() +
+  labs(
+    title = "Green Party Entry Effect Across Issue Domains",
+    subtitle = "Point estimate (LATE) with approximate 95% CI",
+    x = NULL, y = "LATE"
+  ) +
+  theme_minimal()
+
+print(domain_comparison_plot)
+ggsave("Publisering Analyse/Cultural/Publisering domain_comparison_plot.png", domain_comparison_plot, width = 10, height = 5, dpi = 300)
 ```
 
 # ============================================================================
@@ -2245,6 +2268,26 @@ incumbent_gov_results <- data.frame(
 print(incumbent_gov_results)
 write.csv(incumbent_gov_results, "Publisering Analyse/Heterogeneity/Publisering incumbent_government_results.csv", row.names = FALSE)
 
+incumbent_gov_plot_data <- incumbent_gov_results %>%
+  mutate(
+    CI_Lower = LATE - 1.96 * StdError,
+    CI_Upper = LATE + 1.96 * StdError
+  )
+
+incumbent_gov_plot <- ggplot(incumbent_gov_plot_data, aes(x = Group, y = LATE)) +
+  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  coord_flip() +
+  labs(
+    title = "Green Party Entry Effect by Incumbent Government Orientation",
+    subtitle = "Point estimate (LATE) with approximate 95% CI",
+    x = NULL, y = "LATE"
+  ) +
+  theme_minimal()
+
+print(incumbent_gov_plot)
+ggsave("Publisering Analyse/Heterogeneity/Publisering incumbent_government_plot.png", incumbent_gov_plot, width = 10, height = 5, dpi = 300)
+
 # 8.2 Region --------------------------------------------------------------
 h_region_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
                                                                  "centered_lagged_pervote_samlet",
@@ -2297,6 +2340,42 @@ region_results_list <- lapply(unique(h_region_analysis_data$region), function(r)
 region_results <- do.call(rbind, region_results_list)
 print(region_results)
 write.csv(region_results, "Publisering Analyse/Heterogeneity/Publisering region_results.csv", row.names = FALSE)
+
+# Forest-style plot across regions. Regions with LATE = NA (rdrobust() could
+# not be estimated) are dropped from the point-range geometry and annotated
+# as "Not estimated" instead, rather than plotting an undefined point. CEE is
+# flagged in a different color because its estimate rests on only 17
+# clusters -- below the ~20-cluster rule of thumb -- and its bias-corrected
+# CI didn't even contain the point estimate (see cluster-count caveat above).
+region_plot_data <- region_results %>%
+  mutate(
+    CI_Lower = LATE - 1.96 * StdError,
+    CI_Upper = LATE + 1.96 * StdError,
+    Reliability = ifelse(Region == "CEE", "Unreliable (few clusters)", "Estimated")
+  )
+
+region_plot_estimated <- region_plot_data %>% filter(!is.na(LATE))
+region_plot_missing   <- region_plot_data %>% filter(is.na(LATE))
+
+region_plot <- ggplot(region_plot_estimated, aes(x = Region, y = LATE, color = Reliability)) +
+  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), linewidth = 1, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  scale_color_manual(values = c("Estimated" = "darkgreen", "Unreliable (few clusters)" = "firebrick")) +
+  coord_flip() +
+  labs(
+    title = "Green Party Entry Effect by Region",
+    subtitle = if (nrow(region_plot_missing) > 0) {
+      paste0("Point estimate (LATE) with approximate 95% CI. Not estimated: ",
+             paste(region_plot_missing$Region, collapse = ", "))
+    } else {
+      "Point estimate (LATE) with approximate 95% CI"
+    },
+    x = NULL, y = "LATE", color = NULL
+  ) +
+  theme_minimal()
+
+print(region_plot)
+ggsave("Publisering Analyse/Heterogeneity/Publisering region_plot.png", region_plot, width = 10, height = 5, dpi = 300)
 ```
 
 
@@ -2758,6 +2837,31 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
   writeLines(tabel14, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.md")
   print(tabel14)
   write.csv(formation_to_entry_lag, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.csv", row.names = FALSE)
+
+  # Bar chart by country, sorted by lag. Finland, Netherlands and Switzerland
+  # show an impossible negative lag (entry predates the book's founding year),
+  # a known country-level mismatch in van Haute's source table -- flagged in
+  # red rather than silently plotted alongside the trustworthy countries.
+  formation_lag_plot_data <- formation_to_entry_lag %>%
+    mutate(
+      Reliability = ifelse(formation_to_entry_lag_years < 0, "Implausible (negative lag)", "Plausible"),
+      countryname = factor(countryname, levels = countryname[order(formation_to_entry_lag_years)])
+    )
+
+  formation_lag_plot <- ggplot(formation_lag_plot_data, aes(x = countryname, y = formation_to_entry_lag_years, fill = Reliability)) +
+    geom_col() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+    scale_fill_manual(values = c("Plausible" = "darkgreen", "Implausible (negative lag)" = "firebrick")) +
+    coord_flip() +
+    labs(
+      title = "Years from Green Party Formation to Parliamentary Entry",
+      subtitle = "Negative values indicate a known country-level source mismatch",
+      x = NULL, y = "Years", fill = NULL
+    ) +
+    theme_minimal()
+
+  print(formation_lag_plot)
+  ggsave("Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag_plot.png", formation_lag_plot, width = 10, height = 6, dpi = 300)
 
   cat("\nNote: formation-to-entry lag computed for", nrow(formation_to_entry_lag),
       "of", n_distinct(final_dataset$countryname),
