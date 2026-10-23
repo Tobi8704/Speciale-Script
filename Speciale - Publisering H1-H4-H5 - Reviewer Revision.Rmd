@@ -440,7 +440,7 @@ main_results <- data.frame(
 )
 
 main_results_table <- knitr::kable(main_results,
-                                  caption = "Main RDD Results for H1 (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  caption = "Robustness Check: H1 under MSE-optimal Bandwidth (rdrobust; Calonico/Cattaneo/Titiunik 2014) -- the Abou-Chadi & Krause-style replication (section 9) is the main reported specification",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
                                                "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
@@ -1011,7 +1011,7 @@ main_results_h4_right <- data.frame(
 
 # Create a nice table for presentation
 main_results_table_h4_right <- knitr::kable(main_results_h4_right,
-                                  caption = "Main RDD Results for H4_right (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  caption = "Robustness Check: H4 Right-Wing Parties under MSE-optimal Bandwidth (rdrobust; Calonico/Cattaneo/Titiunik 2014) -- the Abou-Chadi & Krause-style replication (section 9) is the main reported specification",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
                                                "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
@@ -1053,7 +1053,7 @@ main_results_h4_left <- data.frame(
 
 # Create a nice table for presentation
 main_results_table_h4_left <- knitr::kable(main_results_h4_left,
-                                  caption = "Main RDD Results for H4_left (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  caption = "Robustness Check: H4 Left-Wing Parties under MSE-optimal Bandwidth (rdrobust; Calonico/Cattaneo/Titiunik 2014) -- the Abou-Chadi & Krause-style replication (section 9) is the main reported specification",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
                                                "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
@@ -1234,7 +1234,7 @@ main_results_h5_large <- data.frame(
 
 # Create a nice table for presentation
 main_results_table_h5_large <- knitr::kable(main_results_h5_large,
-                                  caption = "Main RDD Results for H5_large (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  caption = "Robustness Check: H5 Large Parties under MSE-optimal Bandwidth (rdrobust; Calonico/Cattaneo/Titiunik 2014) -- the Abou-Chadi & Krause-style replication (section 9) is the main reported specification",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
                                                "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
@@ -1273,7 +1273,7 @@ main_results_h5_small <- data.frame(
 )
 
 main_results_table_h5_small <- knitr::kable(main_results_h5_small,
-                                  caption = "Main RDD Results for H5_small (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)",
+                                  caption = "Robustness Check: H5 Small Parties under MSE-optimal Bandwidth (rdrobust; Calonico/Cattaneo/Titiunik 2014) -- the Abou-Chadi & Krause-style replication (section 9) is the main reported specification",
                                   col.names = c("Outcome Variable", "Bandwidth", "LATE", "Std. Error",
                                                "p-value", "95% CI Lower", "95% CI Upper",
                                                "LATE (Robust)", "St. Err. (Robust)", "p-value (Robust)",
@@ -2412,19 +2412,24 @@ ggsave("Publisering Analyse/Heterogeneity/Publisering region_plot.png", region_p
 ```
 
 # ============================================================================
-# 9. ABOU-CHADI & KRAUSE (2020) REPLICATION SPECIFICATION
+# 9. ABOU-CHADI & KRAUSE (2020) REPLICATION SPECIFICATION -- MAIN RESULTS
 # ============================================================================
-# Mirrors Abou-Chadi & Krause's published method on our own data as closely as
-# possible, for H1/H4/H5. IK bandwidth, triangular kernel weighting, country
-# fixed effects, two-way clustered SEs by party and election date (their actual
-# clust1/clust2, confirmed from their published source code rrp_rdd.R /
-# rrp_rdd_functions.R). Reports their full Table 2-style structure -- 4 rows per
-# hypothesis: non-parametric p=1/p=2 (IK bandwidth, kernel-weighted) and
-# parametric p=3/p=4 (global sample, unweighted). Reporting all four rows,
-# rather than only the most favorable one, is what makes this a faithful
-# replication rather than specification searching -- nothing added beyond
-# their own specification, no bandwidth sensitivity check of our own, no
-# bias-corrected CI, just exactly what their paper reports, run end to end.
+# This is the primary reported specification for H1/H4/H5 (Table 1), not a
+# robustness check -- the paper's stated design goal is to follow Abou-Chadi
+# & Krause's approach as closely as possible, and the 4-row battery below
+# *is* their entire published method (IK bandwidth, triangular kernel
+# weighting, country fixed effects, two-way clustered SEs by party and
+# election date; their actual clust1/clust2, confirmed from their published
+# source code rrp_rdd.R / rrp_rdd_functions.R), not a supplementary check
+# alongside something else. Reports their full Table 2-style structure -- 4
+# rows per hypothesis: non-parametric p=1/p=2 (IK bandwidth, kernel-weighted)
+# and parametric p=3/p=4 (global sample, unweighted). Reporting all four
+# rows, rather than only the most favorable one, is what makes this a
+# faithful replication rather than specification searching -- nothing added
+# beyond their own specification, no bandwidth sensitivity check of our own,
+# no bias-corrected CI, just exactly what their paper reports, run end to
+# end. The MSE-optimal rdrobust results reported earlier for H1/H4/H5 are
+# now the robustness check, not the other way around.
 
 ```{r ack_replication_setup}
 dir.create("Publisering Analyse/AC&K Replication", showWarnings = FALSE)
@@ -2564,7 +2569,7 @@ ack_replication_results <- rbind(
 ack_replication_results <- ack_replication_results[, c("Group", "Approach", "Polynomial", "Bandwidth",
                                 "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
 
-knitr::kable(ack_replication_results, caption = "Abou-Chadi & Krause-style replication: all results (Table 2 structure, 4 rows per hypothesis)")
+knitr::kable(ack_replication_results, caption = "Table 1: Main RDD Results for H1, H4, and H5 (Abou-Chadi & Krause 2020 specification, Table 2 structure, 4 rows per hypothesis)")
 
 write.csv(ack_replication_results, "Publisering Analyse/AC&K Replication/ack_replication_results.csv", row.names = FALSE)
 ```
