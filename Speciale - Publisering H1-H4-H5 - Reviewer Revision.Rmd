@@ -401,7 +401,7 @@ ggsave("Publisering Analyse/H1/h1_rdd_plot.png", h1_plot_rdd, width = 10, height
 # 2. RDD ESTIMATION ----------------
 
 # Main RDD estimation with optimal bandwidth
-h1_rdd <- rdrobust(
+h1_rdd <- safe_rdrobust(
   y = h1_analysis_data$miljø_afhængig,
   x = h1_analysis_data$centered_lagged_pervote_samlet,
   c = 0,
@@ -410,13 +410,14 @@ h1_rdd <- rdrobust(
   bwselect = "mserd",  # MSE-optimal bandwidth
   # Cluster by country-election: the same Green party running variable/treatment
   # value is shared by every mainstream party observed in the same election.
-  cluster = h1_analysis_data$country_election_id
+  cluster = h1_analysis_data$country_election_id,
+  label = "H1 main"
 )
 check_rdrobust_cluster_count(h1_rdd, h1_analysis_data, "centered_lagged_pervote_samlet",
                               "country_election_id", "H1 main rdrobust")
 
 # Print summary
-summary_h1 <- summary(h1_rdd)
+if (!is.null(h1_rdd)) summary_h1 <- summary(h1_rdd)
 
 # Opret tabel direkte fra h1_rdd objektet. Reports both the Conventional estimate
 # (index 1: naive point estimate + naive SE) and the Robust one (index 3: Calonico,
@@ -426,17 +427,17 @@ summary_h1 <- summary(h1_rdd)
 # introduces. Reporting both rather than only the theoretically preferred one.
 main_results <- data.frame(
   Outcome = "Climate Position",
-  Bandwidth = round(h1_rdd$bws[1, 1], 3),
-  LATE = round(h1_rdd$Estimate[1], 3),
-  StdError = round(h1_rdd$se[1], 3),
-  pvalue = round(h1_rdd$pv[1], 3),
-  CI_Lower = round(h1_rdd$ci[1, 1], 3),
-  CI_Upper = round(h1_rdd$ci[1, 2], 3),
-  LATE_robust = round(h1_rdd$Estimate[3], 3),
-  StdError_robust = round(h1_rdd$se[3], 3),
-  pvalue_robust = round(h1_rdd$pv[3], 3),
-  CI_Lower_robust = round(h1_rdd$ci[3, 1], 3),
-  CI_Upper_robust = round(h1_rdd$ci[3, 2], 3)
+  Bandwidth = round(safe_val(h1_rdd, "bws", 1, 1), 3),
+  LATE = round(safe_val(h1_rdd, "Estimate"), 3),
+  StdError = round(safe_val(h1_rdd, "se"), 3),
+  pvalue = round(safe_val(h1_rdd, "pv"), 3),
+  CI_Lower = round(safe_val(h1_rdd, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h1_rdd, "ci", 1, 2), 3),
+  LATE_robust = round(safe_val(h1_rdd, "Estimate", 3), 3),
+  StdError_robust = round(safe_val(h1_rdd, "se", 3), 3),
+  pvalue_robust = round(safe_val(h1_rdd, "pv", 3), 3),
+  CI_Lower_robust = round(safe_val(h1_rdd, "ci", 3, 1), 3),
+  CI_Upper_robust = round(safe_val(h1_rdd, "ci", 3, 2), 3)
 )
 
 main_results_table <- knitr::kable(main_results,
@@ -980,33 +981,34 @@ ggsave("Publisering Analyse/H4/Publisering comparison_green_party_hv_effect.png"
 
 # 1.2 RDD ESTIMATION ----------------
 
-h4_rdd_right <- rdrobust(
+h4_rdd_right <- safe_rdrobust(
     y = clean_data_right_party$miljø_afhængig,
     x = clean_data_right_party$centered_lagged_pervote_samlet,
     c = 0,
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = clean_data_right_party$country_election_id
+    cluster = clean_data_right_party$country_election_id,
+    label = "H4 right-wing"
   )
 check_rdrobust_cluster_count(h4_rdd_right, clean_data_right_party, "centered_lagged_pervote_samlet",
                               "country_election_id", "H4 right-wing rdrobust")
-  summary(h4_rdd_right)
+if (!is.null(h4_rdd_right)) summary(h4_rdd_right)
 
 # Opret tabel direkte fra h4_left_rdd objektet
 main_results_h4_right <- data.frame(
   Outcome = "Climate Position",
-  Bandwidth = round(h4_rdd_right$bws[1, 1], 3),
-  LATE = round(h4_rdd_right$Estimate[1], 3),
-  StdError = round(h4_rdd_right$se[1], 3),
-  pvalue = round(h4_rdd_right$pv[1], 3),
-  CI_Lower = round(h4_rdd_right$ci[1, 1], 3),
-  CI_Upper = round(h4_rdd_right$ci[1, 2], 3),
-  LATE_robust = round(h4_rdd_right$Estimate[3], 3),
-  StdError_robust = round(h4_rdd_right$se[3], 3),
-  pvalue_robust = round(h4_rdd_right$pv[3], 3),
-  CI_Lower_robust = round(h4_rdd_right$ci[3, 1], 3),
-  CI_Upper_robust = round(h4_rdd_right$ci[3, 2], 3)
+  Bandwidth = round(safe_val(h4_rdd_right, "bws", 1, 1), 3),
+  LATE = round(safe_val(h4_rdd_right, "Estimate"), 3),
+  StdError = round(safe_val(h4_rdd_right, "se"), 3),
+  pvalue = round(safe_val(h4_rdd_right, "pv"), 3),
+  CI_Lower = round(safe_val(h4_rdd_right, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h4_rdd_right, "ci", 1, 2), 3),
+  LATE_robust = round(safe_val(h4_rdd_right, "Estimate", 3), 3),
+  StdError_robust = round(safe_val(h4_rdd_right, "se", 3), 3),
+  pvalue_robust = round(safe_val(h4_rdd_right, "pv", 3), 3),
+  CI_Lower_robust = round(safe_val(h4_rdd_right, "ci", 3, 1), 3),
+  CI_Upper_robust = round(safe_val(h4_rdd_right, "ci", 3, 2), 3)
 )
 
 # Create a nice table for presentation
@@ -1022,33 +1024,34 @@ writeLines(main_results_table_h4_right, file.path(getwd(), "Publisering Analyse/
 print(main_results_table_h4_right)
 write.csv(main_results_h4_right, "Publisering Analyse/H4/Publisering h4_right_main_results.csv", row.names = FALSE)
 
-h4_rdd_left <- rdrobust(
+h4_rdd_left <- safe_rdrobust(
     y = clean_data_left_party$miljø_afhængig,
     x = clean_data_left_party$centered_lagged_pervote_samlet,
     c = 0,
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = clean_data_left_party$country_election_id
+    cluster = clean_data_left_party$country_election_id,
+    label = "H4 left-wing"
   )
 check_rdrobust_cluster_count(h4_rdd_left, clean_data_left_party, "centered_lagged_pervote_samlet",
                               "country_election_id", "H4 left-wing rdrobust")
-  summary(h4_rdd_left)
+if (!is.null(h4_rdd_left)) summary(h4_rdd_left)
 
 # Opret tabel direkte fra h4_left_rdd objektet
 main_results_h4_left <- data.frame(
   Outcome = "Climate Position",
-  Bandwidth = round(h4_rdd_left$bws[1, 1], 3),
-  LATE = round(h4_rdd_left$Estimate[1], 3),
-  StdError = round(h4_rdd_left$se[1], 3),
-  pvalue = round(h4_rdd_left$pv[1], 3),
-  CI_Lower = round(h4_rdd_left$ci[1, 1], 3),
-  CI_Upper = round(h4_rdd_left$ci[1, 2], 3),
-  LATE_robust = round(h4_rdd_left$Estimate[3], 3),
-  StdError_robust = round(h4_rdd_left$se[3], 3),
-  pvalue_robust = round(h4_rdd_left$pv[3], 3),
-  CI_Lower_robust = round(h4_rdd_left$ci[3, 1], 3),
-  CI_Upper_robust = round(h4_rdd_left$ci[3, 2], 3)
+  Bandwidth = round(safe_val(h4_rdd_left, "bws", 1, 1), 3),
+  LATE = round(safe_val(h4_rdd_left, "Estimate"), 3),
+  StdError = round(safe_val(h4_rdd_left, "se"), 3),
+  pvalue = round(safe_val(h4_rdd_left, "pv"), 3),
+  CI_Lower = round(safe_val(h4_rdd_left, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h4_rdd_left, "ci", 1, 2), 3),
+  LATE_robust = round(safe_val(h4_rdd_left, "Estimate", 3), 3),
+  StdError_robust = round(safe_val(h4_rdd_left, "se", 3), 3),
+  pvalue_robust = round(safe_val(h4_rdd_left, "pv", 3), 3),
+  CI_Lower_robust = round(safe_val(h4_rdd_left, "ci", 3, 1), 3),
+  CI_Upper_robust = round(safe_val(h4_rdd_left, "ci", 3, 2), 3)
 )
 
 # Create a nice table for presentation
@@ -1065,10 +1068,10 @@ print(main_results_table_h4_left)
 write.csv(main_results_h4_left, "Publisering Analyse/H4/Publisering h4_left_main_results.csv", row.names = FALSE)
 
 # Beregn forskellen i LATE (behandlingseffekt)
-difference_effect <- h4_rdd_right$Estimate[1] - h4_rdd_left$Estimate[1]
+difference_effect <- safe_val(h4_rdd_right, "Estimate") - safe_val(h4_rdd_left, "Estimate")
 
 # Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
-difference_se <- sqrt(h4_rdd_right$se[1]^2 + h4_rdd_left$se[1]^2)
+difference_se <- sqrt(safe_val(h4_rdd_right, "se")^2 + safe_val(h4_rdd_left, "se")^2)
 
 # Beregn z-værdi
 z_value <- difference_effect / difference_se
@@ -1204,32 +1207,33 @@ ggsave("Publisering Analyse/H5/Publisering comparison_green_party_stor_lille_eff
 
 
 # 1.2 RDD ESTIMATION ----------------
-h5_large_rdd <- rdrobust(
+h5_large_rdd <- safe_rdrobust(
     y = large_parties$miljø_afhængig,
     x = large_parties$centered_lagged_pervote_samlet,
     c = 0,
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = large_parties$country_election_id
+    cluster = large_parties$country_election_id,
+    label = "H5 large-parties"
   )
 check_rdrobust_cluster_count(h5_large_rdd, large_parties, "centered_lagged_pervote_samlet",
                               "country_election_id", "H5 large-parties rdrobust")
-  summary(h5_large_rdd)
+if (!is.null(h5_large_rdd)) summary(h5_large_rdd)
 
 main_results_h5_large <- data.frame(
   Outcome = "Climate Position",
-  Bandwidth = round(h5_large_rdd$bws[1, 1], 3),
-  LATE = round(h5_large_rdd$Estimate[1], 3),
-  StdError = round(h5_large_rdd$se[1], 3),
-  pvalue = round(h5_large_rdd$pv[1], 3),
-  CI_Lower = round(h5_large_rdd$ci[1, 1], 3),
-  CI_Upper = round(h5_large_rdd$ci[1, 2], 3),
-  LATE_robust = round(h5_large_rdd$Estimate[3], 3),
-  StdError_robust = round(h5_large_rdd$se[3], 3),
-  pvalue_robust = round(h5_large_rdd$pv[3], 3),
-  CI_Lower_robust = round(h5_large_rdd$ci[3, 1], 3),
-  CI_Upper_robust = round(h5_large_rdd$ci[3, 2], 3)
+  Bandwidth = round(safe_val(h5_large_rdd, "bws", 1, 1), 3),
+  LATE = round(safe_val(h5_large_rdd, "Estimate"), 3),
+  StdError = round(safe_val(h5_large_rdd, "se"), 3),
+  pvalue = round(safe_val(h5_large_rdd, "pv"), 3),
+  CI_Lower = round(safe_val(h5_large_rdd, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h5_large_rdd, "ci", 1, 2), 3),
+  LATE_robust = round(safe_val(h5_large_rdd, "Estimate", 3), 3),
+  StdError_robust = round(safe_val(h5_large_rdd, "se", 3), 3),
+  pvalue_robust = round(safe_val(h5_large_rdd, "pv", 3), 3),
+  CI_Lower_robust = round(safe_val(h5_large_rdd, "ci", 3, 1), 3),
+  CI_Upper_robust = round(safe_val(h5_large_rdd, "ci", 3, 2), 3)
 )
 
 # Create a nice table for presentation
@@ -1478,7 +1482,7 @@ print(sharp_fuzzy_table)
 write.csv(as.data.frame(sharp_fuzzy_crosstab), "Publisering Analyse/H1/Publisering h1_sharp_fuzzy_check.csv", row.names = FALSE)
 
 if (n_mismatches > 0) {
-  h1_rdd_fuzzy <- rdrobust(
+  h1_rdd_fuzzy <- safe_rdrobust(
     y = h1_analysis_data$miljø_afhængig,
     x = h1_analysis_data$centered_lagged_pervote_samlet,
     fuzzy = h1_analysis_data$lagged_i_parlament,
@@ -1486,9 +1490,10 @@ if (n_mismatches > 0) {
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = h1_analysis_data$country_election_id
+    cluster = h1_analysis_data$country_election_id,
+    label = "H1 fuzzy"
   )
-  summary(h1_rdd_fuzzy)
+  if (!is.null(h1_rdd_fuzzy)) summary(h1_rdd_fuzzy)
 }
 
 # 1.5 Covariate Balance Tests for H1 ----------------
@@ -1501,21 +1506,22 @@ balance_covariates <- balance_covariates[balance_covariates %in% names(h1_analys
 
 balance_results <- lapply(balance_covariates, function(covariate) {
   bal_data <- h1_analysis_data[complete.cases(h1_analysis_data[, c(covariate, "centered_lagged_pervote_samlet", "country_election_id")]), ]
-  bal_rd <- rdrobust(
+  bal_rd <- safe_rdrobust(
     y = bal_data[[covariate]],
     x = bal_data$centered_lagged_pervote_samlet,
     c = 0,
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = bal_data$country_election_id
+    cluster = bal_data$country_election_id,
+    label = paste("Balance test:", covariate)
   )
   data.frame(
     Covariate = covariate,
-    Estimate  = round(bal_rd$Estimate[1], 3),
-    StdError  = round(bal_rd$se[1], 3),
-    pvalue    = round(bal_rd$pv[1], 3),
-    N         = sum(bal_rd$N_h)
+    Estimate  = round(safe_val(bal_rd, "Estimate"), 3),
+    StdError  = round(safe_val(bal_rd, "se"), 3),
+    pvalue    = round(safe_val(bal_rd, "pv"), 3),
+    N         = if (is.null(bal_rd)) NA_integer_ else sum(bal_rd$N_h)
   )
 })
 
@@ -1905,27 +1911,28 @@ h1_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kul
                                                                  "edate",
                                                                  "country_election_id")]), ]
 
-h1_rdd_cultural <- rdrobust(
+h1_rdd_cultural <- safe_rdrobust(
   y = h1_cultural_analysis_data$kultur_afhaengig,
   x = h1_cultural_analysis_data$centered_lagged_pervote_samlet,
   c = 0,
   p = 1,
   kernel = "triangular",
   bwselect = "mserd",
-  cluster = h1_cultural_analysis_data$country_election_id
+  cluster = h1_cultural_analysis_data$country_election_id,
+  label = "H1 cultural"
 )
 check_rdrobust_cluster_count(h1_rdd_cultural, h1_cultural_analysis_data, "centered_lagged_pervote_samlet",
                               "country_election_id", "H1 cultural rdrobust")
-summary(h1_rdd_cultural)
+if (!is.null(h1_rdd_cultural)) summary(h1_rdd_cultural)
 
 main_results_cultural <- data.frame(
   Outcome = "Cultural Liberalism Position",
-  Bandwidth = round(h1_rdd_cultural$bws[1, 1], 3),
-  LATE = round(h1_rdd_cultural$Estimate[1], 3),
-  StdError = round(h1_rdd_cultural$se[1], 3),
-  pvalue = round(h1_rdd_cultural$pv[1], 3),
-  CI_Lower = round(h1_rdd_cultural$ci[1, 1], 3),
-  CI_Upper = round(h1_rdd_cultural$ci[1, 2], 3)
+  Bandwidth = round(safe_val(h1_rdd_cultural, "bws", 1, 1), 3),
+  LATE = round(safe_val(h1_rdd_cultural, "Estimate"), 3),
+  StdError = round(safe_val(h1_rdd_cultural, "se"), 3),
+  pvalue = round(safe_val(h1_rdd_cultural, "pv"), 3),
+  CI_Lower = round(safe_val(h1_rdd_cultural, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h1_rdd_cultural, "ci", 1, 2), 3)
 )
 main_results_cultural_table <- knitr::kable(main_results_cultural,
                                   caption = "Main RDD Results for H1 - Cultural Liberalism Outcome",
@@ -1959,28 +1966,30 @@ h4_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kul
 clean_data_right_party_cultural <- subset(h4_cultural_analysis_data, left_party_lag1 == 0)
 clean_data_left_party_cultural <- subset(h4_cultural_analysis_data, left_party_lag1 == 1)
 
-h4_rdd_right_cultural <- rdrobust(
+h4_rdd_right_cultural <- safe_rdrobust(
     y = clean_data_right_party_cultural$kultur_afhaengig,
     x = clean_data_right_party_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = clean_data_right_party_cultural$country_election_id
+    cluster = clean_data_right_party_cultural$country_election_id,
+    label = "H4 right-wing cultural"
   )
 check_rdrobust_cluster_count(h4_rdd_right_cultural, clean_data_right_party_cultural, "centered_lagged_pervote_samlet",
                               "country_election_id", "H4 right-wing cultural rdrobust")
-h4_rdd_left_cultural <- rdrobust(
+h4_rdd_left_cultural <- safe_rdrobust(
     y = clean_data_left_party_cultural$kultur_afhaengig,
     x = clean_data_left_party_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = clean_data_left_party_cultural$country_election_id
+    cluster = clean_data_left_party_cultural$country_election_id,
+    label = "H4 left-wing cultural"
   )
 check_rdrobust_cluster_count(h4_rdd_left_cultural, clean_data_left_party_cultural, "centered_lagged_pervote_samlet",
                               "country_election_id", "H4 left-wing cultural rdrobust")
 
 h4_cultural_results <- data.frame(
   Group = c("Right-Wing Parties", "Left-Wing Parties"),
-  LATE = round(c(h4_rdd_right_cultural$Estimate[1], h4_rdd_left_cultural$Estimate[1]), 3),
-  StdError = round(c(h4_rdd_right_cultural$se[1], h4_rdd_left_cultural$se[1]), 3),
-  pvalue = round(c(h4_rdd_right_cultural$pv[1], h4_rdd_left_cultural$pv[1]), 3)
+  LATE = round(c(safe_val(h4_rdd_right_cultural, "Estimate"), safe_val(h4_rdd_left_cultural, "Estimate")), 3),
+  StdError = round(c(safe_val(h4_rdd_right_cultural, "se"), safe_val(h4_rdd_left_cultural, "se")), 3),
+  pvalue = round(c(safe_val(h4_rdd_right_cultural, "pv"), safe_val(h4_rdd_left_cultural, "pv")), 3)
 )
 print(h4_cultural_results)
 write.csv(h4_cultural_results, "Publisering Analyse/Cultural/Publisering h4_cultural_results.csv", row.names = FALSE)
@@ -1996,28 +2005,30 @@ h5_cultural_analysis_data <- final_dataset[complete.cases(final_dataset[, c("kul
 large_parties_cultural <- subset(h5_cultural_analysis_data, large_party_lag1 == 1)
 small_parties_cultural <- subset(h5_cultural_analysis_data, large_party_lag1 == 0)
 
-h5_rdd_large_cultural <- rdrobust(
+h5_rdd_large_cultural <- safe_rdrobust(
     y = large_parties_cultural$kultur_afhaengig,
     x = large_parties_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = large_parties_cultural$country_election_id
+    cluster = large_parties_cultural$country_election_id,
+    label = "H5 large-parties cultural"
   )
 check_rdrobust_cluster_count(h5_rdd_large_cultural, large_parties_cultural, "centered_lagged_pervote_samlet",
                               "country_election_id", "H5 large-parties cultural rdrobust")
-h5_rdd_small_cultural <- rdrobust(
+h5_rdd_small_cultural <- safe_rdrobust(
     y = small_parties_cultural$kultur_afhaengig,
     x = small_parties_cultural$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = small_parties_cultural$country_election_id
+    cluster = small_parties_cultural$country_election_id,
+    label = "H5 small-parties cultural"
   )
 check_rdrobust_cluster_count(h5_rdd_small_cultural, small_parties_cultural, "centered_lagged_pervote_samlet",
                               "country_election_id", "H5 small-parties cultural rdrobust")
 
 h5_cultural_results <- data.frame(
   Group = c("Large Parties", "Small Parties"),
-  LATE = round(c(h5_rdd_large_cultural$Estimate[1], h5_rdd_small_cultural$Estimate[1]), 3),
-  StdError = round(c(h5_rdd_large_cultural$se[1], h5_rdd_small_cultural$se[1]), 3),
-  pvalue = round(c(h5_rdd_large_cultural$pv[1], h5_rdd_small_cultural$pv[1]), 3)
+  LATE = round(c(safe_val(h5_rdd_large_cultural, "Estimate"), safe_val(h5_rdd_small_cultural, "Estimate")), 3),
+  StdError = round(c(safe_val(h5_rdd_large_cultural, "se"), safe_val(h5_rdd_small_cultural, "se")), 3),
+  pvalue = round(c(safe_val(h5_rdd_large_cultural, "pv"), safe_val(h5_rdd_small_cultural, "pv")), 3)
 )
 print(h5_cultural_results)
 write.csv(h5_cultural_results, "Publisering Analyse/Cultural/Publisering h5_cultural_results.csv", row.names = FALSE)
@@ -2025,13 +2036,14 @@ write.csv(h5_cultural_results, "Publisering Analyse/Cultural/Publisering h5_cult
 # Side-by-side comparison: environmental vs. cultural-liberalism main effect ----
 domain_comparison <- data.frame(
   Domain = c("Environmental (miljø_afhængig)", "Cultural Liberalism (kultur_afhaengig)"),
-  LATE = round(c(h1_rdd$Estimate[1], h1_rdd_cultural$Estimate[1]), 3),
-  StdError = round(c(h1_rdd$se[1], h1_rdd_cultural$se[1]), 3),
-  pvalue = round(c(h1_rdd$pv[1], h1_rdd_cultural$pv[1]), 3),
-  LATE_robust = round(c(h1_rdd$Estimate[3], h1_rdd_cultural$Estimate[3]), 3),
-  StdError_robust = round(c(h1_rdd$se[3], h1_rdd_cultural$se[3]), 3),
-  pvalue_robust = round(c(h1_rdd$pv[3], h1_rdd_cultural$pv[3]), 3),
-  N = c(sum(h1_rdd$N_h), sum(h1_rdd_cultural$N_h))
+  LATE = round(c(safe_val(h1_rdd, "Estimate"), safe_val(h1_rdd_cultural, "Estimate")), 3),
+  StdError = round(c(safe_val(h1_rdd, "se"), safe_val(h1_rdd_cultural, "se")), 3),
+  pvalue = round(c(safe_val(h1_rdd, "pv"), safe_val(h1_rdd_cultural, "pv")), 3),
+  LATE_robust = round(c(safe_val(h1_rdd, "Estimate", 3), safe_val(h1_rdd_cultural, "Estimate", 3)), 3),
+  StdError_robust = round(c(safe_val(h1_rdd, "se", 3), safe_val(h1_rdd_cultural, "se", 3)), 3),
+  pvalue_robust = round(c(safe_val(h1_rdd, "pv", 3), safe_val(h1_rdd_cultural, "pv", 3)), 3),
+  N = c(if (is.null(h1_rdd)) NA_integer_ else sum(h1_rdd$N_h),
+        if (is.null(h1_rdd_cultural)) NA_integer_ else sum(h1_rdd_cultural$N_h))
 )
 domain_comparison_table <- knitr::kable(domain_comparison,
   caption = "Table: Green Party Parliamentary Entry Effect Across Issue Domains (Conventional and Robust bias-corrected, Calonico/Cattaneo/Titiunik 2014)")
@@ -2272,28 +2284,30 @@ cat("\nIncumbent-government subsample N:", nrow(h_incumbent_analysis_data),
 incumbent_left_gov <- subset(h_incumbent_analysis_data, incumbent_left_led == 1)
 incumbent_right_gov <- subset(h_incumbent_analysis_data, incumbent_left_led == 0)
 
-h_rdd_left_gov <- rdrobust(
+h_rdd_left_gov <- safe_rdrobust(
     y = incumbent_left_gov$miljø_afhængig,
     x = incumbent_left_gov$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = incumbent_left_gov$country_election_id
+    cluster = incumbent_left_gov$country_election_id,
+    label = "Left-led incumbent government"
   )
 check_rdrobust_cluster_count(h_rdd_left_gov, incumbent_left_gov, "centered_lagged_pervote_samlet",
                               "country_election_id", "Left-led incumbent government rdrobust")
-h_rdd_right_gov <- rdrobust(
+h_rdd_right_gov <- safe_rdrobust(
     y = incumbent_right_gov$miljø_afhængig,
     x = incumbent_right_gov$centered_lagged_pervote_samlet,
     c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
-    cluster = incumbent_right_gov$country_election_id
+    cluster = incumbent_right_gov$country_election_id,
+    label = "Right-led incumbent government"
   )
 check_rdrobust_cluster_count(h_rdd_right_gov, incumbent_right_gov, "centered_lagged_pervote_samlet",
                               "country_election_id", "Right-led incumbent government rdrobust")
 
 incumbent_gov_results <- data.frame(
   Group = c("Left-Led Incumbent Government", "Right-Led Incumbent Government"),
-  LATE = round(c(h_rdd_left_gov$Estimate[1], h_rdd_right_gov$Estimate[1]), 3),
-  StdError = round(c(h_rdd_left_gov$se[1], h_rdd_right_gov$se[1]), 3),
-  pvalue = round(c(h_rdd_left_gov$pv[1], h_rdd_right_gov$pv[1]), 3),
+  LATE = round(c(safe_val(h_rdd_left_gov, "Estimate"), safe_val(h_rdd_right_gov, "Estimate")), 3),
+  StdError = round(c(safe_val(h_rdd_left_gov, "se"), safe_val(h_rdd_right_gov, "se")), 3),
+  pvalue = round(c(safe_val(h_rdd_left_gov, "pv"), safe_val(h_rdd_right_gov, "pv")), 3),
   N_below_c = c(sum(incumbent_left_gov$centered_lagged_pervote_samlet < 0),
                 sum(incumbent_right_gov$centered_lagged_pervote_samlet < 0)),
   N_above_c = c(sum(incumbent_left_gov$centered_lagged_pervote_samlet >= 0),
