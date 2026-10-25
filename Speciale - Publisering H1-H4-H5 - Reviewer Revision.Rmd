@@ -1245,31 +1245,32 @@ writeLines(main_results_table_h5_large, file.path(getwd(), "Publisering Analyse/
 print(main_results_table_h5_large)
 write.csv(main_results_h5_large, "Publisering Analyse/H5/Publisering h5_large_main_results.csv", row.names = FALSE)
   
-h5_small_rdd <- rdrobust(
+h5_small_rdd <- safe_rdrobust(
     y = small_parties$miljø_afhængig,
     x = small_parties$centered_lagged_pervote_samlet,
     c = 0,
     p = 1,
     kernel = "triangular",
     bwselect = "mserd",
-    cluster = small_parties$country_election_id
+    cluster = small_parties$country_election_id,
+    label = "H5 small-parties"
   )
 check_rdrobust_cluster_count(h5_small_rdd, small_parties, "centered_lagged_pervote_samlet",
                               "country_election_id", "H5 small-parties rdrobust")
 
 main_results_h5_small <- data.frame(
   Outcome = "Climate Position",
-  Bandwidth = round(h5_small_rdd$bws[1, 1], 3),
-  LATE = round(h5_small_rdd$Estimate[1], 3),
-  StdError = round(h5_small_rdd$se[1], 3),
-  pvalue = round(h5_small_rdd$pv[1], 3),
-  CI_Lower = round(h5_small_rdd$ci[1, 1], 3),
-  CI_Upper = round(h5_small_rdd$ci[1, 2], 3),
-  LATE_robust = round(h5_small_rdd$Estimate[3], 3),
-  StdError_robust = round(h5_small_rdd$se[3], 3),
-  pvalue_robust = round(h5_small_rdd$pv[3], 3),
-  CI_Lower_robust = round(h5_small_rdd$ci[3, 1], 3),
-  CI_Upper_robust = round(h5_small_rdd$ci[3, 2], 3)
+  Bandwidth = round(safe_val(h5_small_rdd, "bws", 1, 1), 3),
+  LATE = round(safe_val(h5_small_rdd, "Estimate"), 3),
+  StdError = round(safe_val(h5_small_rdd, "se"), 3),
+  pvalue = round(safe_val(h5_small_rdd, "pv"), 3),
+  CI_Lower = round(safe_val(h5_small_rdd, "ci", 1, 1), 3),
+  CI_Upper = round(safe_val(h5_small_rdd, "ci", 1, 2), 3),
+  LATE_robust = round(safe_val(h5_small_rdd, "Estimate", 3), 3),
+  StdError_robust = round(safe_val(h5_small_rdd, "se", 3), 3),
+  pvalue_robust = round(safe_val(h5_small_rdd, "pv", 3), 3),
+  CI_Lower_robust = round(safe_val(h5_small_rdd, "ci", 3, 1), 3),
+  CI_Upper_robust = round(safe_val(h5_small_rdd, "ci", 3, 2), 3)
 )
 
 main_results_table_h5_small <- knitr::kable(main_results_h5_small,
@@ -1285,10 +1286,10 @@ print(main_results_table_h5_small)
 write.csv(main_results_h5_small, "Publisering Analyse/H5/Publisering h5_small_main_results.csv", row.names = FALSE)
 
 # Beregn forskellen i LATE (behandlingseffekt)
-difference_effect <- h5_large_rdd$Estimate[1] - h5_small_rdd$Estimate[1]
+difference_effect <- safe_val(h5_large_rdd, "Estimate") - safe_val(h5_small_rdd, "Estimate")
 
 # Beregn standardfejlen for forskellen (kvadratroden af summen af kvadraterne)
-difference_se <- sqrt(h5_large_rdd$se[1]^2 + h5_small_rdd$se[1]^2)
+difference_se <- sqrt(safe_val(h5_large_rdd, "se")^2 + safe_val(h5_small_rdd, "se")^2)
 
 # Beregn z-værdi
 z_value <- difference_effect / difference_se
