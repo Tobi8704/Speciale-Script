@@ -487,7 +487,13 @@ green_party_data <- read_delim(
   trim_ws = TRUE
 ) %>%
   mutate(
-    edate = as.Date(edate, format = "%d-%m-%Y"),
+    # This file mixes DD-MM-YYYY (dashes) and D/M/YYYY (slashes) across rows --
+    # as.Date(..., format = "%d-%m-%Y") only understands the former and
+    # silently turns every slash-formatted date into NA, which then fails to
+    # match anything in the merge below (confirmed: this was dropping most of
+    # Latvia's history and the newest Czech Republic election). dmy() handles
+    # both separators.
+    edate = lubridate::dmy(edate),
     edate = format(edate, "%Y/%m/%d")
   )
 
