@@ -1,20 +1,9 @@
 ```{r setup, include=FALSE}
-# autodep = TRUE lets knitr figure out, from each chunk's own R code, which
-# earlier chunks it reads objects from, so that if an UPSTREAM cached chunk's
-# code or inputs change, every chunk that depends on it is correctly
-# recomputed too (not just the chunk you edited). Without this, caching below
-# would risk silently reusing stale results -- exactly the kind of bug this
-# project has already been burned by once.
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
-                       cache.path = "knitr_cache/", autodep = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
 # 1. Setup and Data Preparation
-```{r Load af data, cache=TRUE, cache.extra=tools::md5sum("final_dataset_publisering.rds")}
-# cache.extra hashes the RDS file itself, not just this chunk's code, so
-# re-running the data-construction script and overwriting
-# final_dataset_publisering.rds busts this cache (and, via autodep, every
-# downstream cached chunk) even though the one line of code here never changes.
+```{r Load af data}
 final_dataset <- readRDS("final_dataset_publisering.rds")
 ```
 
@@ -364,7 +353,7 @@ plot_rdd <- function(data, x_var, y_var, group_var,
 ```
 
 
-```{r h1_analysis, cache=TRUE}
+```{r h1_analysis}
 # Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
 dir.create("Publisering Analyse", showWarnings = FALSE)
 
@@ -930,7 +919,7 @@ print(ten_pairs)
 
 
 
-```{r h4_analysis, cache=TRUE}
+```{r h4_analysis}
 dir.create("Publisering Analyse", showWarnings = FALSE)
 
 # Opret derefter undermappen H4 tests - Appendiks
@@ -1156,7 +1145,7 @@ write.csv(combined_results_ideology, "Publisering Analyse/H4/Publisering combine
 ```
 
 
-```{r h5_analysis, cache=TRUE}
+```{r h5_analysis}
 dir.create("Publisering Analyse", showWarnings = FALSE)
 
 # Opret derefter undermappen H5 tests - Appendiks
@@ -1380,7 +1369,7 @@ write.csv(combined_results_size, "Publisering Analyse/H5/Publisering combined_re
 ```
 
 
-```{r Implementation af coefficient stability plots og placebo-tests, cache=TRUE}
+```{r Implementation af coefficient stability plots og placebo-tests}
 # 1.0 H1: GREEN PARTY PARLIAMENTARY ENTRY EFFECT (MAIN HYPOTHESIS) ----------------
 # Opret først hovedmappen Robusthedstests, hvis den ikke allerede eksisterer
 dir.create("Publisering Robusthedstests", showWarnings = FALSE)
@@ -1911,7 +1900,7 @@ ggsave("Publisering Robusthedstests/H5 tests - Appendiks/Publisering h5_small_de
 # sharp-vs-fuzzy check from section 1.3-1.4 apply unchanged since they depend only on
 # the running variable, not the outcome, so they are not repeated here.
 
-```{r cultural_analysis, cache=TRUE}
+```{r cultural_analysis}
 dir.create("Publisering Analyse/Cultural", showWarnings = FALSE)
 
 # H1-equivalent: main effect on cultural liberalism -----------------------
@@ -2108,7 +2097,7 @@ ggsave("Publisering Analyse/Cultural/Publisering domain_comparison_plot.png", do
 # below for H1 only, for direct comparison -- flag this conceptual gap before
 # using it as the paper's actual outcome.
 
-```{r rights_analysis, cache=TRUE}
+```{r rights_analysis}
 dir.create("Publisering Analyse/Rights", showWarnings = FALSE)
 
 # H1-equivalent: main effect on minority-rights position (primary construction) --
@@ -2277,7 +2266,7 @@ write.csv(domain_comparison_rights, "Publisering Analyse/Rights/Publisering doma
 # non-parametric structure as the H4 ideology split, just a different
 # grouping variable.
 
-```{r heterogeneity_analysis, cache=TRUE}
+```{r heterogeneity_analysis}
 dir.create("Publisering Analyse/Heterogeneity", showWarnings = FALSE)
 
 # 8.1 Incumbent government (left-led vs. right-led) -------------------------
@@ -2457,7 +2446,7 @@ ggsave("Publisering Analyse/Heterogeneity/Publisering region_plot.png", region_p
 # end. The MSE-optimal rdrobust results reported earlier for H1/H4/H5 are
 # now the robustness check, not the other way around.
 
-```{r ack_replication_setup, cache=TRUE}
+```{r ack_replication_setup}
 dir.create("Publisering Analyse/AC&K Replication", showWarnings = FALSE)
 
 # rdd was archived on CRAN in 2025, so pacman::p_load()'s normal
@@ -2471,7 +2460,7 @@ if (!requireNamespace("rdd", quietly = TRUE)) {
 library(rdd)
 ```
 
-```{r ack_row_function, cache=TRUE}
+```{r ack_row_function}
 # One row of their Table 2: polynomial order p, with or without the IK
 # bandwidth restriction and kernel weighting (bandwidth = NULL means their
 # parametric/global row).
@@ -2551,7 +2540,7 @@ ack_replicate <- function(data, label) {
 }
 ```
 
-```{r ack_replication_h1, cache=TRUE}
+```{r ack_replication_h1}
 ack_h1_data <- final_dataset[complete.cases(final_dataset[, c(
   "miljø_afhængig", "centered_lagged_pervote_samlet", "lagged_i_parlament",
   "country", "edate", "party"
@@ -2560,7 +2549,7 @@ ack_h1_data <- final_dataset[complete.cases(final_dataset[, c(
 ack_h1_result <- ack_replicate(ack_h1_data, "H1 (Pooled)")
 ```
 
-```{r ack_replication_h4, cache=TRUE}
+```{r ack_replication_h4}
 ack_h4_data <- final_dataset[complete.cases(final_dataset[, c(
   "miljø_afhængig", "centered_lagged_pervote_samlet", "lagged_i_parlament",
   "left_party_lag1", "country", "edate", "party"
@@ -2573,7 +2562,7 @@ ack_h4_right_result <- ack_replicate(ack_h4_right, "H4 (Right-Wing)")
 ack_h4_left_result  <- ack_replicate(ack_h4_left,  "H4 (Left-Wing)")
 ```
 
-```{r ack_replication_h5, cache=TRUE}
+```{r ack_replication_h5}
 ack_h5_data <- final_dataset[complete.cases(final_dataset[, c(
   "miljø_afhængig", "centered_lagged_pervote_samlet", "lagged_i_parlament",
   "large_party_lag1", "country", "edate", "party"
@@ -2586,7 +2575,7 @@ ack_h5_large_result <- ack_replicate(ack_h5_large, "H5 (Large Parties)")
 ack_h5_small_result <- ack_replicate(ack_h5_small, "H5 (Small Parties)")
 ```
 
-```{r ack_replication_combined, cache=TRUE}
+```{r ack_replication_combined}
 ack_replication_results <- rbind(
   ack_h1_result,
   ack_h4_right_result, ack_h4_left_result,
@@ -2602,7 +2591,7 @@ write.csv(ack_replication_results, "Publisering Analyse/AC&K Replication/ack_rep
 
 
 ####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
-```{r Fuld Deskriptiv Statistik, cache=TRUE}
+```{r Fuld Deskriptiv Statistik}
 # Opret mappe til deskriptiv statistik hvis den ikke findes
 dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
 
