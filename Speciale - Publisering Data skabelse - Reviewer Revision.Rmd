@@ -638,6 +638,57 @@ final_dataset <- final_dataset %>%
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 ```
 
+## 1.7b Economic Control Variables
+
+```{r economic_controls}
+# Reviewer-requested economic context. This thesis's own theory chapter
+# ("Den økonomiske factor") argues environmental focus is postmaterialist:
+# it only gains political traction once more basic material concerns are
+# not themselves pressing (Facchini et al. 2017), and unemployment in
+# particular is theorised to crowd out climate salience (Grant & Tilley
+# 2019). GDP per capita and unemployment (loaded in section 1.3 but never
+# merged in) operationalise, respectively, the "room for postmaterialist
+# politics" precondition and the "material insecurity crowds out climate"
+# mechanism. Growth and inflation are merged too since they were already
+# loaded for the same purpose, but are secondary to the two above.
+# These are added as covariates for a robustness check only -- the RDD
+# design identifies off of the threshold discontinuity, not off of
+# cross-country economic variation, so they are not part of the main
+# specification.
+final_dataset <- final_dataset %>%
+  dplyr::mutate(
+    Election_Year = if (inherits(edate, "Date")) {
+      lubridate::year(edate)
+    } else {
+      lubridate::year(lubridate::ymd(as.character(edate)))
+    }
+  )
+
+gdp_per_capita_sub <- gdp_per_capita %>%
+  dplyr::select(countryname, Year, GDP_per_capita)
+gdp_per_capita_growth_sub <- gdp_per_capita_growth %>%
+  dplyr::select(countryname, Year, gdp_capita_growth)
+inflation_consumer_prices_sub <- inflation_consumer_prices %>%
+  dplyr::select(countryname, Year, `Inflation-consumer prices`)
+unemployment_sub <- unemployment %>%
+  dplyr::select(countryname, Year, Unemployment)
+
+final_dataset <- final_dataset %>%
+  dplyr::left_join(gdp_per_capita_sub, by = c("countryname", "Election_Year" = "Year")) %>%
+  dplyr::left_join(gdp_per_capita_growth_sub, by = c("countryname", "Election_Year" = "Year")) %>%
+  dplyr::left_join(inflation_consumer_prices_sub, by = c("countryname", "Election_Year" = "Year")) %>%
+  dplyr::left_join(unemployment_sub, by = c("countryname", "Election_Year" = "Year")) %>%
+  dplyr::rename(inflation_consumer_prices = `Inflation-consumer prices`)
+
+cat("\nEconomic control coverage (of", nrow(final_dataset), "rows): GDP per capita non-missing for",
+    sum(!is.na(final_dataset$GDP_per_capita)), "; GDP growth for",
+    sum(!is.na(final_dataset$gdp_capita_growth)), "; inflation for",
+    sum(!is.na(final_dataset$inflation_consumer_prices)), "; unemployment for",
+    sum(!is.na(final_dataset$Unemployment)), "rows.\n",
+    "Source series run from 1970 -- elections before 1970 and countries/years ",
+    "coded '..' (missing) in the World Bank source files will be NA here.\n")
+```
+
 ## 1.8 Incumbent Government and Regional Heterogeneity
 
 ```{r cabinet_and_region_heterogeneity}

@@ -3021,6 +3021,19 @@ if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
 # Entry year itself is NOT taken from the book -- it's derived from this
 # project's own i_parlament variable, which is more directly comparable to how
 # the RDD treatment is defined than the book's "Representation" column.
+#
+# Finland, the Netherlands and Switzerland previously showed an "impossible"
+# negative lag (entry predating the book's own founding year) because van
+# Haute's table reports each country's final, formally-merged/registered
+# party (Vihreä liitto 1988, GroenLinks 1990, GPS 1983), while a looser
+# green-labelled predecessor already held seats earlier: independent green
+# candidates in Finland's 1983 election, GroenLinks's constituent PPR from
+# 1971 on, and GPS's direct predecessor MPE (founded 1971, with a first
+# National Council seat in 1979). green_party_origin_years_vanHaute.csv's
+# origin_year column has been corrected to that earlier, defensible
+# founding/breakthrough date for these three (origin_year_raw keeps van
+# Haute's original figure and source_note documents the correction and its
+# sources), so the lag is no longer negative for any country.
 green_origins <- read_csv("green_party_origin_years_vanHaute.csv", show_col_types = FALSE)
 
 if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
@@ -3049,27 +3062,31 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
   print(tabel14)
   write.csv(formation_to_entry_lag, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.csv", row.names = FALSE)
 
-  # Bar chart by country, sorted by lag. Finland, Netherlands and Switzerland
-  # show an impossible negative lag (entry predates the book's founding year),
-  # a known country-level mismatch in van Haute's source table -- flagged in
-  # red rather than silently plotted alongside the trustworthy countries.
+  # Timeline (dumbbell) plot: one segment per country running from its
+  # corrected formation/breakthrough year to its first parliamentary-entry
+  # year, sorted chronologically by formation year. This replaces the
+  # earlier lag-only bar chart per the reviewer request for a graphical
+  # formation -> entry timeline rather than a single derived number.
   formation_lag_plot_data <- formation_to_entry_lag %>%
     mutate(
-      Reliability = ifelse(formation_to_entry_lag_years < 0, "Implausible (negative lag)", "Plausible"),
-      countryname = factor(countryname, levels = countryname[order(formation_to_entry_lag_years)])
+      countryname = factor(countryname, levels = countryname[order(origin_year)])
     )
 
-  formation_lag_plot <- ggplot(formation_lag_plot_data, aes(x = countryname, y = formation_to_entry_lag_years, fill = Reliability)) +
-    geom_col() +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
-    scale_fill_manual(values = c("Plausible" = "darkgreen", "Implausible (negative lag)" = "firebrick")) +
-    coord_flip() +
+  formation_lag_plot <- ggplot(formation_lag_plot_data, aes(y = countryname)) +
+    geom_segment(aes(x = origin_year, xend = first_entry_year, yend = countryname),
+                 color = "grey60", linewidth = 1) +
+    geom_point(aes(x = origin_year, color = "Party formation"), size = 3) +
+    geom_point(aes(x = first_entry_year, color = "First parliamentary entry"), size = 3) +
+    geom_text(aes(x = origin_year, label = origin_year), vjust = -1, size = 3) +
+    geom_text(aes(x = first_entry_year, label = first_entry_year), vjust = -1, size = 3) +
+    scale_color_manual(values = c("Party formation" = "darkgreen", "First parliamentary entry" = "steelblue")) +
     labs(
-      title = "Years from Green Party Formation to Parliamentary Entry",
-      subtitle = "Negative values indicate a known country-level source mismatch",
-      x = NULL, y = "Years", fill = NULL
+      title = "Green Party Formation to Parliamentary Entry: Timeline",
+      subtitle = "Each segment spans a country's green-party formation/breakthrough year to its first election with parliamentary seats",
+      x = "Year", y = NULL, color = NULL
     ) +
-    theme_minimal()
+    theme_minimal() +
+    theme(legend.position = "bottom")
 
   print(formation_lag_plot)
   ggsave("Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag_plot.png", formation_lag_plot, width = 10, height = 6, dpi = 300)
