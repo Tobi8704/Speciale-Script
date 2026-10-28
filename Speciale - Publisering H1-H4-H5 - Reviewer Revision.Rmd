@@ -2727,6 +2727,120 @@ write.csv(ack_economic_robustness_results,
           "Publisering Analyse/AC&K Replication/ack_economic_robustness_results.csv", row.names = FALSE)
 ```
 
+# ============================================================================
+# 9b. SUBSTANTIVE MAGNITUDE BENCHMARKING (Reviewer 3)
+# ============================================================================
+# R3: "The authors report that the effect ranges from 1.13 to 1.22 and
+# corresponds to an increase of over 200 percent ... the paper should
+# translate this into more intuitive terms. What does this mean relative to
+# the baseline level of mainstream party environmental attention? How large
+# is this shift compared to typical election-to-election movement in party
+# manifestos? And how does the effect compare to the radical right contagion
+# effects found in Abou-Chadi and Krause or related work?"
+#
+# Three benchmarks per AC&K-spec Table 1 estimate (using each group's p=1
+# non-parametric row, their headline specification):
+#   A. Control-group baseline mean of the outcome (and the treated-group mean,
+#      descriptively -- NOT a causal estimate, just context for the scale).
+#   B. Typical election-to-election |change| in the same outcome within that
+#      subgroup (median and SD), and the LATE expressed in SD units.
+#   C. Abou-Chadi & Krause's own published LATE on the identical outcome
+#      construction for the subgroups they also test (pooled, left/right
+#      split) -- NOT available for H5, since they do not test a party-size
+#      split. ACK_LATE_right/pooled below are placeholders pending
+#      verification against their Table 3/4; only the mainstream-left figure
+#      (2.996***) has been confirmed against the published paper so far.
+
+```{r substantive_magnitude}
+ack_LATE_benchmarks <- data.frame(
+  Group = c("H1 (Pooled)", "H4 (Right-Wing)", "H4 (Left-Wing)", "H5 (Large Parties)", "H5 (Small Parties)"),
+  ACK_Published_LATE = c(NA_real_, NA_real_, 2.996, NA_real_, NA_real_)
+)
+
+compute_election_to_election_volatility <- function(data) {
+  data %>%
+    dplyr::arrange(party, edate) %>%
+    dplyr::group_by(party) %>%
+    dplyr::mutate(delta = abs(miljø_afhængig - dplyr::lag(miljø_afhængig, order_by = edate))) %>%
+    dplyr::ungroup() %>%
+    dplyr::summarise(
+      median_delta = median(delta, na.rm = TRUE),
+      sd_delta = sd(delta, na.rm = TRUE)
+    )
+}
+
+benchmark_row <- function(data, group_label, late) {
+  baseline_mean <- mean(data$miljø_afhængig[data$lagged_i_parlament == 0], na.rm = TRUE)
+  treated_mean  <- mean(data$miljø_afhængig[data$lagged_i_parlament == 1], na.rm = TRUE)
+  vol <- compute_election_to_election_volatility(data)
+
+  data.frame(
+    Group = group_label,
+    LATE = round(late, 3),
+    Pct_Change_LogScale = round((exp(late) - 1) * 100, 1),
+    Control_Group_Mean = round(baseline_mean, 3),
+    Treated_Group_Mean_Descriptive = round(treated_mean, 3),
+    Median_Election_to_Election_Change = round(vol$median_delta, 3),
+    SD_Election_to_Election_Change = round(vol$sd_delta, 3),
+    LATE_in_SD_Units = round(late / vol$sd_delta, 2)
+  )
+}
+
+substantive_magnitude_table <- rbind(
+  benchmark_row(h1_analysis_data, "H1 (Pooled)", ack_h1_result$LATE[1]),
+  benchmark_row(clean_data_right_party, "H4 (Right-Wing)", ack_h4_right_result$LATE[1]),
+  benchmark_row(clean_data_left_party, "H4 (Left-Wing)", ack_h4_left_result$LATE[1]),
+  benchmark_row(large_parties, "H5 (Large Parties)", ack_h5_large_result$LATE[1]),
+  benchmark_row(small_parties, "H5 (Small Parties)", ack_h5_small_result$LATE[1])
+)
+
+substantive_magnitude_table <- merge(substantive_magnitude_table, ack_LATE_benchmarks, by = "Group")
+substantive_magnitude_table$Pct_of_ACK_Benchmark <- round(
+  substantive_magnitude_table$LATE / substantive_magnitude_table$ACK_Published_LATE * 100, 1
+)
+
+# Simple classification: how the SD-units benchmark (B) and the AC&K-ratio
+# benchmark (C, where available) jointly place the estimate. This is a
+# judgment call, not a statistical test -- intended to give R3 exactly the
+# "modest reactive shift vs. major programmatic change" framing requested,
+# applied the same way to every row rather than argued case by case.
+substantive_magnitude_table$Magnitude_Classification <- with(substantive_magnitude_table, ifelse(
+  abs(LATE_in_SD_Units) < 0.5, "Within normal election-to-election noise",
+  ifelse(abs(LATE_in_SD_Units) < 1.5, "Modest -- comparable to ordinary positional movement",
+         ifelse(abs(LATE_in_SD_Units) < 2.5, "Moderate -- comparable in scale to AC&K's own contagion effect",
+                "Large -- a programmatic-scale shift"))
+))
+
+print(substantive_magnitude_table)
+write.csv(substantive_magnitude_table,
+          "Publisering Analyse/AC&K Replication/substantive_magnitude_table.csv", row.names = FALSE)
+
+# Visual: each LATE against a shaded band for its subgroup's normal
+# election-to-election volatility (+/-1 SD), with AC&K's own benchmark LATE
+# marked where available -- the "intuitive" comparison R3 is asking for.
+magnitude_plot_data <- substantive_magnitude_table %>%
+  dplyr::mutate(
+    Group = factor(Group, levels = rev(Group)),
+    Vol_Lower = -SD_Election_to_Election_Change,
+    Vol_Upper = SD_Election_to_Election_Change
+  )
+
+magnitude_plot <- ggplot(magnitude_plot_data, aes(y = Group)) +
+  geom_errorbarh(aes(xmin = Vol_Lower, xmax = Vol_Upper), height = 0.3, color = "grey70", linewidth = 3, alpha = 0.5) +
+  geom_point(aes(x = LATE), color = "darkgreen", size = 3) +
+  geom_point(aes(x = ACK_Published_LATE), color = "firebrick", shape = 17, size = 3, na.rm = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  labs(
+    title = "Effect Size in Context",
+    subtitle = "Green point: our LATE. Grey band: +/-1 SD of normal election-to-election movement for that subgroup.\nRed triangle (where available): Abou-Chadi & Krause's own published LATE on the same outcome.",
+    x = "LATE (log points)", y = NULL
+  ) +
+  theme_minimal()
+
+print(magnitude_plot)
+ggsave("Publisering Analyse/AC&K Replication/substantive_magnitude_plot.png", magnitude_plot, width = 11, height = 5, dpi = 300)
+```
+
 
 ####SKAL IKKE MED I DEN FÆRDIGE DATA TIL PUBLISERING --------------------
 ```{r Fuld Deskriptiv Statistik}
