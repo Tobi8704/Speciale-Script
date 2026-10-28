@@ -93,6 +93,20 @@ check_rdrobust_cluster_count <- function(rdrobust_model, data, running_var, clus
   check_cluster_count(data[[cluster_var]][in_bw], label)
 }
 
+# Same within-bandwidth-restriction logic as check_rdrobust_cluster_count
+# above, but returning the count instead of just printing/warning about it --
+# for building a Reliability flag directly into a results table (e.g. the
+# economic-context heterogeneity split) rather than relying on a console
+# warning the reader of the knitted output won't see.
+rdrobust_n_clusters_in_bw <- function(rdrobust_model, data, running_var, cluster_var) {
+  if (is.null(rdrobust_model)) return(NA_integer_)
+  bw_left <- rdrobust_model$bws[1, 1]
+  bw_right <- rdrobust_model$bws[1, 2]
+  x <- data[[running_var]]
+  in_bw <- (x < 0 & x >= -bw_left) | (x >= 0 & x <= bw_right)
+  length(unique(data[[cluster_var]][in_bw]))
+}
+
 # Wraps rdrobust() so a degenerate bandwidth on a thin subgroup (too few
 # observations on one side once the automatic bandwidth selector picks a
 # window -- the same failure mode hit in the region-heterogeneity loop)
@@ -2428,15 +2442,35 @@ h_rdd_weak_economy <- safe_rdrobust(
 check_rdrobust_cluster_count(h_rdd_weak_economy, weak_economy, "centered_lagged_pervote_samlet",
                               "country_election_id", "Below-median GDP per capita rdrobust")
 
+# N_below_c/N_above_c report the full subsample size, not what rdrobust
+# actually estimated from -- its automatic MSE-optimal bandwidth selector can
+# land on a much narrower window for one subgroup than the other, which
+# inflates the SE without changing those two columns, silently making a
+# result look like a tight null when it's actually just a huge CI (observed
+# directly: one subgroup here came back with SE=14.3 against a LATE of 1.5).
+# Bandwidth and N_in_bandwidth_below/above report what was actually used;
+# Reliability flags <20 clusters within that bandwidth, the same rule of
+# thumb already applied to the region-heterogeneity split.
 economy_context_results <- data.frame(
   Group = c("Above-Median GDP per Capita", "Below-Median GDP per Capita"),
   LATE = round(c(safe_val(h_rdd_good_economy, "Estimate"), safe_val(h_rdd_weak_economy, "Estimate")), 3),
   StdError = round(c(safe_val(h_rdd_good_economy, "se"), safe_val(h_rdd_weak_economy, "se")), 3),
   pvalue = round(c(safe_val(h_rdd_good_economy, "pv"), safe_val(h_rdd_weak_economy, "pv")), 3),
+  Bandwidth = round(c(safe_val(h_rdd_good_economy, "bws", 1, 1), safe_val(h_rdd_weak_economy, "bws", 1, 1)), 3),
+  N_in_bandwidth_below = c(safe_val(h_rdd_good_economy, "N_h", 1), safe_val(h_rdd_weak_economy, "N_h", 1)),
+  N_in_bandwidth_above = c(safe_val(h_rdd_good_economy, "N_h", 2), safe_val(h_rdd_weak_economy, "N_h", 2)),
+  Clusters_in_bandwidth = c(
+    rdrobust_n_clusters_in_bw(h_rdd_good_economy, good_economy, "centered_lagged_pervote_samlet", "country_election_id"),
+    rdrobust_n_clusters_in_bw(h_rdd_weak_economy, weak_economy, "centered_lagged_pervote_samlet", "country_election_id")
+  ),
   N_below_c = c(sum(good_economy$centered_lagged_pervote_samlet < 0),
                 sum(weak_economy$centered_lagged_pervote_samlet < 0)),
   N_above_c = c(sum(good_economy$centered_lagged_pervote_samlet >= 0),
                 sum(weak_economy$centered_lagged_pervote_samlet >= 0))
+)
+economy_context_results$Reliability <- ifelse(
+  is.na(economy_context_results$Clusters_in_bandwidth) | economy_context_results$Clusters_in_bandwidth < 20,
+  "Unreliable (<20 clusters in bandwidth)", "Estimated"
 )
 print(economy_context_results)
 write.csv(economy_context_results, "Publisering Analyse/Heterogeneity/Publisering economy_context_results.csv", row.names = FALSE)
@@ -2447,14 +2481,15 @@ economy_context_plot_data <- economy_context_results %>%
     CI_Upper = LATE + 1.96 * StdError
   )
 
-economy_context_plot <- ggplot(economy_context_plot_data, aes(x = Group, y = LATE)) +
-  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.8) +
+economy_context_plot <- ggplot(economy_context_plot_data, aes(x = Group, y = LATE, color = Reliability)) +
+  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), linewidth = 1, size = 0.8) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  scale_color_manual(values = c("Estimated" = "darkgreen", "Unreliable (<20 clusters in bandwidth)" = "firebrick")) +
   coord_flip() +
   labs(
     title = "Green Party Entry Effect by Economic Context",
     subtitle = "Point estimate (LATE) with approximate 95% CI; split on lagged GDP per capita's own sample median",
-    x = NULL, y = "LATE"
+    x = NULL, y = "LATE", color = NULL
   ) +
   theme_minimal()
 
