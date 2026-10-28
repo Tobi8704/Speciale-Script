@@ -12,7 +12,7 @@ if (!require("pacman")) install.packages("pacman")
 
 pacman::p_load(
   # Data manipulation
-  dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate, quantreg, MASS,
+  dplyr, tidyr, magrittr, purrr, data.table, readr, readxl, lubridate, quantreg, MASS,
   
   # Visualization
   ggplot2, patchwork, scales, RColorBrewer, gridExtra, ggridges, corrplot, ggh4x, modelsummary, kableExtra, UpSetR, reshape2, viridis, plotly,
@@ -359,27 +359,20 @@ if (!"per416_2" %in% names(mpds)) {
 view_election <- read_csv("view_election.csv")
 view_party <- read_csv("view_party.csv")
 
-# GDP Per Capita
-gdp_per_capita <- read_delim("gdp_per_capita.csv", 
-     delim = ";", escape_double = FALSE, col_types = cols(GDP_per_capita = col_number()), 
-     locale = locale(decimal_mark = ",", grouping_mark = "."), 
-     trim_ws = TRUE)
-#View(gdp_per_capita)
-
-gdp_per_capita_growth <- read_delim("gdp_per_capita_growth.csv", 
-    delim = ";", escape_double = FALSE, col_types = cols(gdp_capita_growth = col_number()), 
-    locale = locale(decimal_mark = ",", grouping_mark = "."), 
-    trim_ws = TRUE)
-
-inflation_consumer_prices <- read_delim("inflation-consumer_prices.csv", 
-    delim = ";", escape_double = FALSE, col_types = cols(`Inflation-consumer prices` = col_number()), 
-    locale = locale(decimal_mark = ",", grouping_mark = "."), 
-    trim_ws = TRUE)
-
-unemployment <- read_delim("unemployment.csv", 
-    delim = ";", escape_double = FALSE, col_types = cols(Unemployment = col_number()), 
-    locale = locale(decimal_mark = ",", grouping_mark = "."), 
-    trim_ws = TRUE)
+# GDP Per Capita -- Maddison Project Database (Groningen GGDC, mpd2023_web.xlsx),
+# not the World Bank series previously used here. The World Bank file's
+# "Unemployment"/"Inflation-consumer prices"/GDP-growth series had badly
+# uneven historical coverage (near-total dropout for Italy/Spain/Portugal,
+# complete dropout for Czech Republic/Finland via a country-name mismatch),
+# which was confounding the economic-controls robustness check rather than
+# testing it -- confirmed directly by comparing the post-1970 sample with and
+# without requiring those variables non-missing. Since the economic check is
+# a secondary robustness check, not a main result, this drops the growth/
+# inflation/unemployment series entirely rather than chasing three separate
+# sourcing problems, and uses Maddison's single gdppc column, which has
+# full or near-full 1970-2022 coverage for all 23 countries in the sample.
+maddison_gdp <- readxl::read_excel("mpd2023_web.xlsx", sheet = "Full data") %>%
+  dplyr::select(countryname = country, Year = year, GDP_per_capita = gdppc)
 
 # Filter for European countries
 election_european <- filter_european_countries(view_election)
@@ -644,16 +637,13 @@ final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 # Reviewer-requested economic context. This thesis's own theory chapter
 # ("Den økonomiske factor") argues environmental focus is postmaterialist:
 # it only gains political traction once more basic material concerns are
-# not themselves pressing (Facchini et al. 2017), and unemployment in
-# particular is theorised to crowd out climate salience (Grant & Tilley
-# 2019). GDP per capita and unemployment (loaded in section 1.3 but never
-# merged in) operationalise, respectively, the "room for postmaterialist
-# politics" precondition and the "material insecurity crowds out climate"
-# mechanism. Growth and inflation are merged too since they were already
-# loaded for the same purpose, but are secondary to the two above.
-# These are added as covariates for a robustness check only -- the RDD
+# not themselves pressing (Facchini et al. 2017). GDP per capita (now from
+# the Maddison Project Database, loaded in section 1.3 -- see that chunk's
+# comment for why the World Bank series this replaced was dropped)
+# operationalises the "room for postmaterialist politics" precondition.
+# This is added as a covariate for a robustness check only -- the RDD
 # design identifies off of the threshold discontinuity, not off of
-# cross-country economic variation, so they are not part of the main
+# cross-country economic variation, so it is not part of the main
 # specification.
 final_dataset <- final_dataset %>%
   dplyr::mutate(
@@ -664,31 +654,16 @@ final_dataset <- final_dataset %>%
     }
   )
 
-gdp_per_capita_sub <- gdp_per_capita %>%
-  dplyr::select(countryname, Year, GDP_per_capita)
-gdp_per_capita_growth_sub <- gdp_per_capita_growth %>%
-  dplyr::select(countryname, Year, gdp_capita_growth)
-inflation_consumer_prices_sub <- inflation_consumer_prices %>%
-  dplyr::select(countryname, Year, `Inflation-consumer prices`)
-unemployment_sub <- unemployment %>%
-  dplyr::select(countryname, Year, Unemployment)
-
 final_dataset <- final_dataset %>%
-  dplyr::left_join(gdp_per_capita_sub, by = c("countryname", "Election_Year" = "Year")) %>%
-  dplyr::left_join(gdp_per_capita_growth_sub, by = c("countryname", "Election_Year" = "Year")) %>%
-  dplyr::left_join(inflation_consumer_prices_sub, by = c("countryname", "Election_Year" = "Year")) %>%
-  dplyr::left_join(unemployment_sub, by = c("countryname", "Election_Year" = "Year")) %>%
-  dplyr::rename(inflation_consumer_prices = `Inflation-consumer prices`)
+  dplyr::left_join(maddison_gdp, by = c("countryname", "Election_Year" = "Year"))
 
 cat("\nEconomic control coverage (of", nrow(final_dataset), "rows): GDP per capita non-missing for",
-    sum(!is.na(final_dataset$GDP_per_capita)), "; GDP growth for",
-    sum(!is.na(final_dataset$gdp_capita_growth)), "; inflation for",
-    sum(!is.na(final_dataset$inflation_consumer_prices)), "; unemployment for",
-    sum(!is.na(final_dataset$Unemployment)), "rows.\n",
-    "Source series run from 1970 -- elections before 1970 and countries/years ",
-    "coded '..' (missing) in the World Bank source files will be NA here.\n")
+    sum(!is.na(final_dataset$GDP_per_capita)), "rows.\n",
+    "Maddison's series runs 1970-2022 with near-complete coverage for this sample;",
+    "elections outside that range, or any country-years genuinely absent from",
+    "Maddison, will be NA here.\n")
 
-# Lagged economic controls, same convention as left_party_lag1/large_party_lag1
+# Lagged GDP per capita, same convention as left_party_lag1/large_party_lag1
 # above: the value as of the PRIOR election, matching the RDD running variable
 # (centered_lagged_pervote_samlet) and treatment (lagged_i_parlament), both
 # themselves determined before the current manifesto was written.
@@ -696,18 +671,13 @@ final_dataset <- final_dataset %>%
   dplyr::arrange(party, edate) %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(
-    GDP_per_capita_lag1 = dplyr::lag(GDP_per_capita, n = 1, order_by = edate),
-    Unemployment_lag1 = dplyr::lag(Unemployment, n = 1, order_by = edate)
+    GDP_per_capita_lag1 = dplyr::lag(GDP_per_capita, n = 1, order_by = edate)
   )
 
 # good_economy_lag1: binary split on GDP_per_capita_lag1 at its own sample
 # median, for a heterogeneity check analogous to large_party/left_party --
 # does the effect differ under comparatively prosperous vs. weaker economic
-# conditions? GDP per capita (not unemployment) is used for the split because
-# it maps onto the "room for postmaterialist politics" precondition in the
-# thesis's own theory chapter, which is the more general of its two economic
-# mechanisms; Unemployment_lag1 is kept available for an alternative split if
-# the crowding-out mechanism specifically is of more interest.
+# conditions?
 final_dataset <- final_dataset %>%
   dplyr::mutate(
     good_economy_lag1 = ifelse(

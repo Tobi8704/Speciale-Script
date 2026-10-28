@@ -2527,8 +2527,8 @@ ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL) {
     inter_terms <- c(inter_terms, tcol)
   }
 
-  # extra_covs: optional covariate names (e.g. GDP_per_capita_lag1,
-  # Unemployment_lag1) added to the specification unchanged otherwise, for an
+  # extra_covs: optional covariate names (e.g. GDP_per_capita_lag1) added to
+  # the specification unchanged otherwise, for an
   # economic-controls robustness check -- not part of Abou-Chadi & Krause's
   # own specification, which this function otherwise replicates exactly.
   covs_term <- if (!is.null(extra_covs)) paste(" + ", paste(extra_covs, collapse = " + ")) else ""
@@ -2634,24 +2634,24 @@ write.csv(ack_replication_results, "Publisering Analyse/AC&K Replication/ack_rep
 ```{r ack_economic_robustness, cache=TRUE}
 # Reviewer note "Tjek med det økonomiske": re-run the main H1 (pooled)
 # specification with lagged GDP per capita and unemployment added as
-# covariates, to check whether the country-level economic conditions merged
+# covariate, to check whether the country-level economic conditions merged
 # in during data construction (section 1.7b) account for or change the main
-# estimate. feols() drops rows with NA on either covariate automatically
-# (pre-1970 elections and countries/years missing from the GDP source file),
-# so N_below_c/N_above_c are smaller here than in the pooled H1 result above
-# -- that drop is reported explicitly rather than silently changing the N.
+# estimate. feols() drops rows with NA on the covariate automatically
+# (elections outside Maddison's 1970-2022 coverage), so N_below_c/N_above_c
+# are smaller here than in the pooled H1 result above -- that drop is
+# reported explicitly rather than silently changing the N.
 ack_h1_econ_data <- final_dataset[complete.cases(final_dataset[, c(
   "miljø_afhængig", "centered_lagged_pervote_samlet", "lagged_i_parlament",
-  "country", "edate", "party", "GDP_per_capita_lag1", "Unemployment_lag1"
+  "country", "edate", "party", "GDP_per_capita_lag1"
 )]), ]
 
 cat("\nEconomic-controls robustness check N:", nrow(ack_h1_econ_data),
     "vs.", nrow(ack_h1_data), "in the main pooled H1 estimate (",
-    nrow(ack_h1_data) - nrow(ack_h1_econ_data), "rows dropped for missing GDP/unemployment data).\n")
+    nrow(ack_h1_data) - nrow(ack_h1_econ_data), "rows dropped for missing GDP data).\n")
 
 ack_h1_econ_result <- ack_replicate(
   ack_h1_econ_data, "H1 (Pooled) + Economic Controls",
-  extra_covs = c("GDP_per_capita_lag1", "Unemployment_lag1")
+  extra_covs = c("GDP_per_capita_lag1")
 )
 
 # Same subsample, without the economic covariates, as the correct baseline
@@ -2664,7 +2664,7 @@ ack_economic_robustness_results <- ack_economic_robustness_results[, c("Group", 
                                 "Bandwidth", "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
 
 knitr::kable(ack_economic_robustness_results,
-              caption = "Robustness Check: H1 Pooled Effect With and Without Lagged Economic Controls (GDP per Capita, Unemployment)")
+              caption = "Robustness Check: H1 Pooled Effect With and Without Lagged Economic Controls (GDP per Capita)")
 
 write.csv(ack_economic_robustness_results,
           "Publisering Analyse/AC&K Replication/ack_economic_robustness_results.csv", row.names = FALSE)
@@ -2923,8 +2923,7 @@ if("parfam" %in% names(final_dataset)) {
 # 4. Missing data analyse -----
 key_variables <- c("miljø_afhængig", "centered_lagged_pervote_samlet",
                   "lagged_i_parlament", "left_party_lag1",
-                  "large_party_lag1", "good_economy_lag1", "GDP_per_capita_lag1",
-                  "Unemployment", "Inflation-consumer prices")
+                  "large_party_lag1", "good_economy_lag1", "GDP_per_capita_lag1")
 
 # Sørg for at alle variable findes i datasættet
 key_variables <- key_variables[key_variables %in% names(final_dataset)]
