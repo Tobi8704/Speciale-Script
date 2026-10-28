@@ -687,6 +687,33 @@ cat("\nEconomic control coverage (of", nrow(final_dataset), "rows): GDP per capi
     sum(!is.na(final_dataset$Unemployment)), "rows.\n",
     "Source series run from 1970 -- elections before 1970 and countries/years ",
     "coded '..' (missing) in the World Bank source files will be NA here.\n")
+
+# Lagged economic controls, same convention as left_party_lag1/large_party_lag1
+# above: the value as of the PRIOR election, matching the RDD running variable
+# (centered_lagged_pervote_samlet) and treatment (lagged_i_parlament), both
+# themselves determined before the current manifesto was written.
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(
+    GDP_per_capita_lag1 = dplyr::lag(GDP_per_capita, n = 1, order_by = edate),
+    Unemployment_lag1 = dplyr::lag(Unemployment, n = 1, order_by = edate)
+  )
+
+# good_economy_lag1: binary split on GDP_per_capita_lag1 at its own sample
+# median, for a heterogeneity check analogous to large_party/left_party --
+# does the effect differ under comparatively prosperous vs. weaker economic
+# conditions? GDP per capita (not unemployment) is used for the split because
+# it maps onto the "room for postmaterialist politics" precondition in the
+# thesis's own theory chapter, which is the more general of its two economic
+# mechanisms; Unemployment_lag1 is kept available for an alternative split if
+# the crowding-out mechanism specifically is of more interest.
+final_dataset <- final_dataset %>%
+  dplyr::mutate(
+    good_economy_lag1 = ifelse(
+      GDP_per_capita_lag1 > median(GDP_per_capita_lag1, na.rm = TRUE), 1, 0
+    )
+  )
 ```
 
 ## 1.8 Incumbent Government and Regional Heterogeneity

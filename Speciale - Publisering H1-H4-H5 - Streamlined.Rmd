@@ -1121,6 +1121,26 @@ nrow(h5_analysis_data)
 large_parties <- subset(h5_analysis_data, large_party_lag1 == 1)
 small_parties <- subset(h5_analysis_data, large_party_lag1 == 0)
 
+# 0.1 Average party size, for context on what "large"/"small" mean in vote-
+# share terms (reviewer note: "Gennemsnit over hele datasættet ift størrelse
+# på partierne"). large_party_lag1 is a median split on pervote_main (a
+# party's OWN vote share at that specific election, lagged one election --
+# see Data skabelse section 1.7), so these means describe what that split
+# actually looks like in practice, not just which side of the median a party
+# falls on.
+party_size_summary <- data.frame(
+  Group = c("Whole Sample", "Large Parties (large_party_lag1 == 1)", "Small Parties (large_party_lag1 == 0)"),
+  Mean_Vote_Share = round(c(mean(h5_analysis_data$pervote_main, na.rm = TRUE),
+                             mean(large_parties$pervote_main, na.rm = TRUE),
+                             mean(small_parties$pervote_main, na.rm = TRUE)), 1),
+  Median_Vote_Share = round(c(median(h5_analysis_data$pervote_main, na.rm = TRUE),
+                               median(large_parties$pervote_main, na.rm = TRUE),
+                               median(small_parties$pervote_main, na.rm = TRUE)), 1),
+  N = c(nrow(h5_analysis_data), nrow(large_parties), nrow(small_parties))
+)
+print(party_size_summary)
+write.csv(party_size_summary, "Publisering Analyse/H5/Publisering party_size_summary.csv", row.names = FALSE)
+
 # 1.1 VISUAL INSPECTION OF THE DISCONTINUITY ----------------
 # Visual confirmation for large parties
 h5_large_plot <- plot_rdd(
@@ -2367,6 +2387,79 @@ region_plot <- ggplot(region_plot_estimated, aes(x = Region, y = LATE, color = R
 
 print(region_plot)
 ggsave("Publisering Analyse/Heterogeneity/Publisering region_plot.png", region_plot, width = 10, height = 5, dpi = 300)
+
+# 8.3 Economic context (good vs. weak economy) -----------------------------
+# Reviewer note "Tjek med det økonomiske": does the effect differ under
+# comparatively prosperous vs. weaker economic conditions (good_economy_lag1,
+# a median split on lagged GDP per capita -- see Data skabelse section 1.7b)?
+# Same postmaterialist logic as the thesis's own "Den økonomiske factor"
+# chapter: room for climate-focused reactions to Green entry may depend on
+# whether more basic economic concerns are already pressing.
+h_economy_analysis_data <- final_dataset[complete.cases(final_dataset[, c("miljø_afhængig",
+                                                                 "centered_lagged_pervote_samlet",
+                                                                 "lagged_i_parlament",
+                                                                 "good_economy_lag1",
+                                                                 "country",
+                                                                 "edate",
+                                                                 "country_election_id")]), ]
+cat("\nEconomic-context subsample N:", nrow(h_economy_analysis_data),
+    "(", nrow(final_dataset) - nrow(h_economy_analysis_data), "dropped for missing good_economy_lag1,",
+    "i.e. elections before 1970 or countries/years missing from the GDP source file)\n")
+
+good_economy <- subset(h_economy_analysis_data, good_economy_lag1 == 1)
+weak_economy <- subset(h_economy_analysis_data, good_economy_lag1 == 0)
+
+h_rdd_good_economy <- safe_rdrobust(
+    y = good_economy$miljø_afhængig,
+    x = good_economy$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = good_economy$country_election_id,
+    label = "Above-median GDP per capita"
+  )
+check_rdrobust_cluster_count(h_rdd_good_economy, good_economy, "centered_lagged_pervote_samlet",
+                              "country_election_id", "Above-median GDP per capita rdrobust")
+h_rdd_weak_economy <- safe_rdrobust(
+    y = weak_economy$miljø_afhængig,
+    x = weak_economy$centered_lagged_pervote_samlet,
+    c = 0, p = 1, kernel = "triangular", bwselect = "mserd",
+    cluster = weak_economy$country_election_id,
+    label = "Below-median GDP per capita"
+  )
+check_rdrobust_cluster_count(h_rdd_weak_economy, weak_economy, "centered_lagged_pervote_samlet",
+                              "country_election_id", "Below-median GDP per capita rdrobust")
+
+economy_context_results <- data.frame(
+  Group = c("Above-Median GDP per Capita", "Below-Median GDP per Capita"),
+  LATE = round(c(safe_val(h_rdd_good_economy, "Estimate"), safe_val(h_rdd_weak_economy, "Estimate")), 3),
+  StdError = round(c(safe_val(h_rdd_good_economy, "se"), safe_val(h_rdd_weak_economy, "se")), 3),
+  pvalue = round(c(safe_val(h_rdd_good_economy, "pv"), safe_val(h_rdd_weak_economy, "pv")), 3),
+  N_below_c = c(sum(good_economy$centered_lagged_pervote_samlet < 0),
+                sum(weak_economy$centered_lagged_pervote_samlet < 0)),
+  N_above_c = c(sum(good_economy$centered_lagged_pervote_samlet >= 0),
+                sum(weak_economy$centered_lagged_pervote_samlet >= 0))
+)
+print(economy_context_results)
+write.csv(economy_context_results, "Publisering Analyse/Heterogeneity/Publisering economy_context_results.csv", row.names = FALSE)
+
+economy_context_plot_data <- economy_context_results %>%
+  mutate(
+    CI_Lower = LATE - 1.96 * StdError,
+    CI_Upper = LATE + 1.96 * StdError
+  )
+
+economy_context_plot <- ggplot(economy_context_plot_data, aes(x = Group, y = LATE)) +
+  geom_pointrange(aes(ymin = CI_Lower, ymax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  coord_flip() +
+  labs(
+    title = "Green Party Entry Effect by Economic Context",
+    subtitle = "Point estimate (LATE) with approximate 95% CI; split on lagged GDP per capita's own sample median",
+    x = NULL, y = "LATE"
+  ) +
+  theme_minimal()
+
+print(economy_context_plot)
+ggsave("Publisering Analyse/Heterogeneity/Publisering economy_context_plot.png", economy_context_plot, width = 10, height = 5, dpi = 300)
 ```
 
 # ============================================================================
@@ -2407,7 +2500,7 @@ library(rdd)
 # One row of their Table 2: polynomial order p, with or without the IK
 # bandwidth restriction and kernel weighting (bandwidth = NULL means their
 # parametric/global row).
-ack_row <- function(data, p, bandwidth, approach_label) {
+ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL) {
   if (!is.null(bandwidth)) {
     data$kernel_weight <- kernelwts(
       X = data$centered_lagged_pervote_samlet,
@@ -2434,9 +2527,15 @@ ack_row <- function(data, p, bandwidth, approach_label) {
     inter_terms <- c(inter_terms, tcol)
   }
 
+  # extra_covs: optional covariate names (e.g. GDP_per_capita_lag1,
+  # Unemployment_lag1) added to the specification unchanged otherwise, for an
+  # economic-controls robustness check -- not part of Abou-Chadi & Krause's
+  # own specification, which this function otherwise replicates exactly.
+  covs_term <- if (!is.null(extra_covs)) paste(" + ", paste(extra_covs, collapse = " + ")) else ""
+
   fml <- as.formula(paste0(
     "miljø_afhængig ~ lagged_i_parlament + ", paste(poly_terms, collapse = " + "),
-    " + ", paste(inter_terms, collapse = " + "), " | country"
+    " + ", paste(inter_terms, collapse = " + "), covs_term, " | country"
   ))
 
   # Sharp design: lagged_i_parlament is a deterministic function of the
@@ -2461,7 +2560,7 @@ ack_row <- function(data, p, bandwidth, approach_label) {
 # Their full 4-row Table 2 structure for one subgroup: IK bandwidth is
 # computed once per subgroup and shared by the two Non-Parametric rows,
 # exactly as in their paper.
-ack_replicate <- function(data, label) {
+ack_replicate <- function(data, label, extra_covs = NULL) {
   bw <- IKbandwidth(
     X = data$centered_lagged_pervote_samlet,
     Y = data$miljø_afhængig,
@@ -2469,10 +2568,10 @@ ack_replicate <- function(data, label) {
   )
 
   tbl <- rbind(
-    ack_row(data, p = 1, bandwidth = bw,   approach_label = "Non-Parametric"),
-    ack_row(data, p = 2, bandwidth = bw,   approach_label = "Non-Parametric"),
-    ack_row(data, p = 3, bandwidth = NULL, approach_label = "Parametric"),
-    ack_row(data, p = 4, bandwidth = NULL, approach_label = "Parametric")
+    ack_row(data, p = 1, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs),
+    ack_row(data, p = 2, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs),
+    ack_row(data, p = 3, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs),
+    ack_row(data, p = 4, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs)
   )
   tbl$Group <- label
 
@@ -2530,6 +2629,45 @@ ack_replication_results <- ack_replication_results[, c("Group", "Approach", "Pol
 knitr::kable(ack_replication_results, caption = "Table 1: Main RDD Results for H1, H4, and H5 (Abou-Chadi & Krause 2020 specification, Table 2 structure, 4 rows per hypothesis)")
 
 write.csv(ack_replication_results, "Publisering Analyse/AC&K Replication/ack_replication_results.csv", row.names = FALSE)
+```
+
+```{r ack_economic_robustness, cache=TRUE}
+# Reviewer note "Tjek med det økonomiske": re-run the main H1 (pooled)
+# specification with lagged GDP per capita and unemployment added as
+# covariates, to check whether the country-level economic conditions merged
+# in during data construction (section 1.7b) account for or change the main
+# estimate. feols() drops rows with NA on either covariate automatically
+# (pre-1970 elections and countries/years missing from the GDP source file),
+# so N_below_c/N_above_c are smaller here than in the pooled H1 result above
+# -- that drop is reported explicitly rather than silently changing the N.
+ack_h1_econ_data <- final_dataset[complete.cases(final_dataset[, c(
+  "miljø_afhængig", "centered_lagged_pervote_samlet", "lagged_i_parlament",
+  "country", "edate", "party", "GDP_per_capita_lag1", "Unemployment_lag1"
+)]), ]
+
+cat("\nEconomic-controls robustness check N:", nrow(ack_h1_econ_data),
+    "vs.", nrow(ack_h1_data), "in the main pooled H1 estimate (",
+    nrow(ack_h1_data) - nrow(ack_h1_econ_data), "rows dropped for missing GDP/unemployment data).\n")
+
+ack_h1_econ_result <- ack_replicate(
+  ack_h1_econ_data, "H1 (Pooled) + Economic Controls",
+  extra_covs = c("GDP_per_capita_lag1", "Unemployment_lag1")
+)
+
+# Same subsample, without the economic covariates, as the correct baseline
+# for comparison (rather than comparing against ack_h1_result above, which
+# runs on a larger, non-identical sample).
+ack_h1_econ_baseline <- ack_replicate(ack_h1_econ_data, "H1 (Pooled), Same Subsample, No Economic Controls")
+
+ack_economic_robustness_results <- rbind(ack_h1_econ_baseline, ack_h1_econ_result)
+ack_economic_robustness_results <- ack_economic_robustness_results[, c("Group", "Approach", "Polynomial",
+                                "Bandwidth", "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
+
+knitr::kable(ack_economic_robustness_results,
+              caption = "Robustness Check: H1 Pooled Effect With and Without Lagged Economic Controls (GDP per Capita, Unemployment)")
+
+write.csv(ack_economic_robustness_results,
+          "Publisering Analyse/AC&K Replication/ack_economic_robustness_results.csv", row.names = FALSE)
 ```
 
 
