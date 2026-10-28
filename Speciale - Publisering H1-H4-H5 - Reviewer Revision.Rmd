@@ -2744,17 +2744,17 @@ write.csv(ack_economic_robustness_results,
 #      descriptively -- NOT a causal estimate, just context for the scale).
 #   B. Typical election-to-election |change| in the same outcome within that
 #      subgroup (median and SD), and the LATE expressed in SD units.
-#   C. Abou-Chadi & Krause's own published LATE on the identical outcome
-#      construction for the subgroups they also test (pooled, left/right
-#      split) -- NOT available for H5, since they do not test a party-size
-#      split. ACK_LATE_right/pooled below are placeholders pending
-#      verification against their Table 3/4; only the mainstream-left figure
-#      (2.996***) has been confirmed against the published paper so far.
+#   C. Abou-Chadi & Krause's own published LATE (p=1 non-parametric row) on
+#      the identical outcome construction, confirmed directly against their
+#      published Table 2 (pooled, LATE=3.072***, SE=0.643), Table 3
+#      (mainstream left, LATE=2.996***, SE=0.868) and Table 4 (mainstream
+#      right, LATE=3.435***, SE=0.765). Not available for H5, since they do
+#      not test a party-size split.
 
 ```{r substantive_magnitude}
 ack_LATE_benchmarks <- data.frame(
   Group = c("H1 (Pooled)", "H4 (Right-Wing)", "H4 (Left-Wing)", "H5 (Large Parties)", "H5 (Small Parties)"),
-  ACK_Published_LATE = c(NA_real_, NA_real_, 2.996, NA_real_, NA_real_)
+  ACK_Published_LATE = c(3.072, 3.435, 2.996, NA_real_, NA_real_)
 )
 
 compute_election_to_election_volatility <- function(data) {
