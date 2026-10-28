@@ -2594,7 +2594,7 @@ library(rdd)
 # One row of their Table 2: polynomial order p, with or without the IK
 # bandwidth restriction and kernel weighting (bandwidth = NULL means their
 # parametric/global row).
-ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL) {
+ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL, outcome_var = "miljø_afhængig") {
   if (!is.null(bandwidth)) {
     data$kernel_weight <- kernelwts(
       X = data$centered_lagged_pervote_samlet,
@@ -2628,7 +2628,7 @@ ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL) {
   covs_term <- if (!is.null(extra_covs)) paste(" + ", paste(extra_covs, collapse = " + ")) else ""
 
   fml <- as.formula(paste0(
-    "miljø_afhængig ~ lagged_i_parlament + ", paste(poly_terms, collapse = " + "),
+    outcome_var, " ~ lagged_i_parlament + ", paste(poly_terms, collapse = " + "),
     " + ", paste(inter_terms, collapse = " + "), covs_term, " | country"
   ))
 
@@ -2654,18 +2654,18 @@ ack_row <- function(data, p, bandwidth, approach_label, extra_covs = NULL) {
 # Their full 4-row Table 2 structure for one subgroup: IK bandwidth is
 # computed once per subgroup and shared by the two Non-Parametric rows,
 # exactly as in their paper.
-ack_replicate <- function(data, label, extra_covs = NULL) {
+ack_replicate <- function(data, label, extra_covs = NULL, outcome_var = "miljø_afhængig") {
   bw <- IKbandwidth(
     X = data$centered_lagged_pervote_samlet,
-    Y = data$miljø_afhængig,
+    Y = data[[outcome_var]],
     cutpoint = 0
   )
 
   tbl <- rbind(
-    ack_row(data, p = 1, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs),
-    ack_row(data, p = 2, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs),
-    ack_row(data, p = 3, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs),
-    ack_row(data, p = 4, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs)
+    ack_row(data, p = 1, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs, outcome_var = outcome_var),
+    ack_row(data, p = 2, bandwidth = bw,   approach_label = "Non-Parametric", extra_covs = extra_covs, outcome_var = outcome_var),
+    ack_row(data, p = 3, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs, outcome_var = outcome_var),
+    ack_row(data, p = 4, bandwidth = NULL, approach_label = "Parametric", extra_covs = extra_covs, outcome_var = outcome_var)
   )
   tbl$Group <- label
 
@@ -2762,6 +2762,30 @@ knitr::kable(ack_economic_robustness_results,
 
 write.csv(ack_economic_robustness_results,
           "Publisering Analyse/AC&K Replication/ack_economic_robustness_results.csv", row.names = FALSE)
+```
+
+```{r ack_economic_balance_check}
+# The general-purpose balance test (section 1.5) uses rdrobust()'s own
+# automatic MSE-optimal bandwidth on GDP_per_capita_lag1 as the outcome --
+# that selector picked an unusably narrow window here (N=16), so that test
+# is uninformative, not reassuring. This checks balance the right way for
+# THIS specific question: on the exact same sample and bandwidth that
+# produced the "significant with GDP added" result above (ack_h1_econ_data,
+# IK bandwidth computed on miljø_afhængig), does GDP_per_capita_lag1 ITSELF
+# jump discontinuously at the cutoff? If it does, the earlier result is a
+# composition artifact (GDP differs systematically between treated and
+# control within that window), not evidence the covariate is doing anything
+# but soaking up a confound. ack_row()/ack_replicate() now take an
+# outcome_var argument precisely so this reuses the identical machinery
+# rather than a separately-coded, not-quite-comparable check.
+ack_h1_gdp_balance <- ack_replicate(ack_h1_econ_data, "GDP Balance Check (same sample/bandwidth as above)",
+                                     outcome_var = "GDP_per_capita_lag1")
+
+knitr::kable(ack_h1_gdp_balance[, c("Group", "Approach", "Polynomial", "Bandwidth", "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")],
+              caption = "Balance Check: Does GDP per Capita Itself Jump at the Cutoff, on the Same Sample/Bandwidth as the Economic-Controls Check Above?")
+
+write.csv(ack_h1_gdp_balance,
+          "Publisering Analyse/AC&K Replication/ack_h1_gdp_balance_check.csv", row.names = FALSE)
 ```
 
 # ============================================================================
