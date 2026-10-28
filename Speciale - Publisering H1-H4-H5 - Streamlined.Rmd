@@ -31,7 +31,7 @@ pacman::p_load(
   dplyr, tidyr, magrittr, purrr, data.table, readr, lubridate, quantreg, MASS,
   
   # Visualization
-  ggplot2, patchwork, scales, RColorBrewer, gridExtra, ggridges, corrplot, ggh4x, modelsummary, kableExtra, UpSetR, reshape2, viridis, plotly,
+  ggplot2, patchwork, scales, RColorBrewer, gridExtra, ggridges, ggrepel, corrplot, ggh4x, modelsummary, kableExtra, UpSetR, reshape2, viridis, plotly,
   
   # Statistical analysis
   rdd, rddtools, rddensity, rdrobust, rdlocrand, AER, ivreg,
@@ -1480,10 +1480,12 @@ if (n_mismatches > 0) {
 
 # 1.5 Covariate Balance Tests for H1 ----------------
 # Standard RDD diagnostic: pre-treatment covariates should show no discontinuity at
-# the cutoff. GDP/unemployment/inflation are loaded earlier in the pipeline (Data
-# skabelse.Rmd, section 1.3) but not currently merged into final_dataset, so balance
-# is tested here on the covariates that are actually available on final_dataset.
-balance_covariates <- c("rile_lowe", "pervote_main", "absseat")
+# the cutoff. GDP_per_capita_lag1 is included here specifically because the
+# economic-controls robustness check (section 9) shows adding it as a
+# covariate moves the main LATE noticeably -- under a genuinely local-random
+# design that movement shouldn't happen if GDP is balanced across the
+# cutoff, so this directly checks whether it is.
+balance_covariates <- c("rile_lowe", "pervote_main", "absseat", "GDP_per_capita_lag1")
 balance_covariates <- balance_covariates[balance_covariates %in% names(h1_analysis_data)]
 
 balance_results <- lapply(balance_covariates, function(covariate) {
@@ -3296,26 +3298,43 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
   # year, sorted chronologically by formation year. This replaces the
   # earlier lag-only bar chart per the reviewer request for a graphical
   # formation -> entry timeline rather than a single derived number.
+  # same_year (Finland: origin_year == first_entry_year == 1983) collapses the
+  # segment to a point -- plotted as a single distinct marker rather than two
+  # overlapping circles with two overlapping "1983"/"1983" labels. For every
+  # other country, ggrepel nudges the two year-labels apart whenever they'd
+  # otherwise collide (Portugal 1981/1983, Greece 1988/1989, Italy 1986/1987
+  # were all overlapping as plain geom_text before this).
   formation_lag_plot_data <- formation_to_entry_lag %>%
     mutate(
-      countryname = factor(countryname, levels = countryname[order(origin_year)])
+      countryname = factor(countryname, levels = countryname[order(origin_year)]),
+      same_year = origin_year == first_entry_year
     )
+  diff_year_data <- dplyr::filter(formation_lag_plot_data, !same_year)
+  same_year_data <- dplyr::filter(formation_lag_plot_data, same_year)
 
   formation_lag_plot <- ggplot(formation_lag_plot_data, aes(y = countryname)) +
     geom_segment(aes(x = origin_year, xend = first_entry_year, yend = countryname),
                  color = "grey60", linewidth = 1) +
-    geom_point(aes(x = origin_year, color = "Party formation"), size = 3) +
-    geom_point(aes(x = first_entry_year, color = "First parliamentary entry"), size = 3) +
-    geom_text(aes(x = origin_year, label = origin_year), vjust = -1, size = 3) +
-    geom_text(aes(x = first_entry_year, label = first_entry_year), vjust = -1, size = 3) +
-    scale_color_manual(values = c("Party formation" = "darkgreen", "First parliamentary entry" = "steelblue")) +
+    geom_point(data = diff_year_data, aes(x = origin_year, color = "Party formation"), size = 3) +
+    geom_point(data = diff_year_data, aes(x = first_entry_year, color = "First parliamentary entry"), size = 3) +
+    geom_point(data = same_year_data, aes(x = origin_year, color = "Formation = entry (same year)"),
+               shape = 18, size = 5) +
+    ggrepel::geom_text_repel(data = diff_year_data, aes(x = origin_year, label = origin_year),
+                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
+    ggrepel::geom_text_repel(data = diff_year_data, aes(x = first_entry_year, label = first_entry_year),
+                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
+    ggrepel::geom_text_repel(data = same_year_data, aes(x = origin_year, label = origin_year),
+                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
+    scale_color_manual(values = c("Party formation" = "darkgreen", "First parliamentary entry" = "steelblue",
+                                   "Formation = entry (same year)" = "purple")) +
+    scale_y_discrete(expand = expansion(add = c(0.6, 1.0))) +
     labs(
       title = "Green Party Formation to Parliamentary Entry: Timeline",
       subtitle = "Each segment spans a country's green-party formation/breakthrough year to its first election with parliamentary seats",
       x = "Year", y = NULL, color = NULL
     ) +
     theme_minimal() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "bottom", plot.margin = margin(t = 20, r = 15, b = 5, l = 5))
 
   print(formation_lag_plot)
   ggsave("Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag_plot.png", formation_lag_plot, width = 10, height = 6, dpi = 300)
