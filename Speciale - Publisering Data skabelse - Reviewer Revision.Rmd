@@ -627,6 +627,16 @@ final_dataset <- final_dataset %>%
   dplyr::group_by(party) %>%
   dplyr::mutate(large_party_alt_lag1 = dplyr::lag(`large_party_alt`, n = 1, order_by = edate))
 
+# Lagged miljø_afhængig (Peter's comment, relaying reviewer-facing advice):
+# a balance test on the pre-treatment value of the DV itself -- the covariate
+# reviewers will most want checked, since the RDD running variable and
+# treatment are themselves lagged one election. Not used anywhere else in
+# the pipeline, only for the balance-test addition in the H1-H4-H5 script.
+final_dataset <- final_dataset %>%
+  dplyr::arrange(party, edate) %>%
+  dplyr::group_by(party) %>%
+  dplyr::mutate(miljø_afhængig_lag1 = dplyr::lag(`miljø_afhængig`, n = 1, order_by = edate))
+
 # Sortér data efter parti og dato
 final_dataset <- final_dataset %>% dplyr::arrange(party, edate)
 ```

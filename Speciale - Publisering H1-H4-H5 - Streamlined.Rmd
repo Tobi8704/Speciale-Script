@@ -1484,8 +1484,12 @@ if (n_mismatches > 0) {
 # economic-controls robustness check (section 9) shows adding it as a
 # covariate moves the main LATE noticeably -- under a genuinely local-random
 # design that movement shouldn't happen if GDP is balanced across the
-# cutoff, so this directly checks whether it is.
-balance_covariates <- c("rile_lowe", "pervote_main", "absseat", "GDP_per_capita_lag1")
+# cutoff, so this directly checks whether it is. miljø_afhængig_lag1 (the
+# lagged value of the DV itself) is added per Peter's comment on the
+# manuscript -- the pre-treatment covariate reviewers will care most about,
+# since both the running variable and treatment are themselves lagged one
+# election; no balance test on the DV's own lagged value existed yet.
+balance_covariates <- c("rile_lowe", "pervote_main", "absseat", "GDP_per_capita_lag1", "miljø_afhængig_lag1")
 balance_covariates <- balance_covariates[balance_covariates %in% names(h1_analysis_data)]
 
 balance_results <- lapply(balance_covariates, function(covariate) {
@@ -3441,6 +3445,59 @@ if (all(c("per410", "per416", "per501", "edate") %in% names(final_dataset))) {
     print(tabel15)
     write.csv(salience_by_green_status, "Publisering Deskriptiv Statistik/tabel15_salience_by_green_status.csv", row.names = FALSE)
   }
+}
+
+# 10e. Trend in the actual main DV (Peter's comment on Figure 4) ------
+# Peter's note: Figure 4 above plots SALIENCE (per410+per416+per501 summed),
+# not the DV actually used in the RDD -- miljø_afhængig, the log-ratio
+# POSITION measure. "We need to be consistent... what are the trends when we
+# take our environmental focus?" This is that trend, built the same way as
+# Figure 4 above but on miljø_afhængig itself, so the Discussion's claim that
+# mainstream parties have moved toward environmental positions independent
+# of Green party success is checked against the actual outcome variable,
+# not a different (salience) one.
+if (all(c("miljø_afhængig", "edate") %in% names(final_dataset))) {
+  position_data <- final_dataset %>%
+    mutate(
+      Election_Year = if (inherits(edate, "Date")) {
+        lubridate::year(edate)
+      } else {
+        lubridate::year(lubridate::ymd(as.character(edate)))
+      }
+    ) %>%
+    filter(!is.na(miljø_afhængig), !is.na(Election_Year))
+
+  position_over_time <- position_data %>%
+    group_by(Election_Year) %>%
+    summarise(
+      mean_position = mean(miljø_afhængig, na.rm = TRUE),
+      median_position = median(miljø_afhængig, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    )
+
+  p4b <- ggplot(position_over_time, aes(x = Election_Year)) +
+    geom_line(aes(y = mean_position), color = "darkgreen", linewidth = 1) +
+    geom_point(aes(y = mean_position), color = "darkgreen") +
+    geom_line(aes(y = median_position), color = "darkgreen", linewidth = 1, linetype = "dashed") +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "grey40") +
+    labs(
+      title = "Mainstream Party Environmental Position Over Time",
+      subtitle = "miljø_afhængig (log-ratio of pro-environment vs. pro-growth emphasis) -- the actual RDD outcome variable; solid = mean, dashed = median",
+      x = "Election Year",
+      y = "Environmental Position (log-ratio)",
+      caption = "Source: own calculations based on the Manifesto Project Dataset"
+    ) +
+    theme_minimal()
+
+  print(p4b)
+  ggsave("Publisering Deskriptiv Statistik/figur4b_miljø_position_over_tid.png", p4b, width = 10, height = 6, dpi = 300)
+  write.csv(position_over_time, "Publisering Deskriptiv Statistik/figur4b_miljø_position_over_tid.csv", row.names = FALSE)
+
+  cat("\nNote: this uses miljø_afhængig (the main DV), not per410+per416+per501",
+      "salience summed (Figure 4 above) -- see Peter's comment 2075/2100 on the",
+      "manuscript. If this is meant to replace Figure 4 in-text rather than sit",
+      "alongside it, that's a manuscript decision, not a code change.\n")
 }
 
 
