@@ -1480,16 +1480,14 @@ if (n_mismatches > 0) {
 
 # 1.5 Covariate Balance Tests for H1 ----------------
 # Standard RDD diagnostic: pre-treatment covariates should show no discontinuity at
-# the cutoff. GDP_per_capita_lag1 is included here specifically because the
-# economic-controls robustness check (section 9) shows adding it as a
-# covariate moves the main LATE noticeably -- under a genuinely local-random
-# design that movement shouldn't happen if GDP is balanced across the
-# cutoff, so this directly checks whether it is. miljø_afhængig_lag1 (the
-# lagged value of the DV itself) is added per Peter's comment on the
-# manuscript -- the pre-treatment covariate reviewers will care most about,
-# since both the running variable and treatment are themselves lagged one
-# election; no balance test on the DV's own lagged value existed yet.
-balance_covariates <- c("rile_lowe", "pervote_main", "absseat", "GDP_per_capita_lag1", "miljø_afhængig_lag1")
+# the cutoff. miljø_afhængig_lag1 (the lagged value of the DV itself) is the
+# pre-treatment covariate reviewers will care most about, since both the
+# running variable and treatment are themselves lagged one election.
+# GDP_per_capita_lag1 is deliberately NOT tested here: rdrobust's automatic
+# bandwidth selector picks an unusably narrow window for it (N=16). Its
+# balance is tested properly in ack_economic_balance_check (section 9), on the
+# same sample/bandwidth as the economic-controls robustness check.
+balance_covariates <- c("rile_lowe", "pervote_main", "absseat", "miljø_afhængig_lag1")
 balance_covariates <- balance_covariates[balance_covariates %in% names(h1_analysis_data)]
 
 balance_results <- lapply(balance_covariates, function(covariate) {
@@ -3476,14 +3474,20 @@ if (all(c("miljø_afhængig", "edate") %in% names(final_dataset))) {
       .groups = "drop"
     )
 
-  p4b <- ggplot(position_over_time, aes(x = Election_Year)) +
-    geom_line(aes(y = mean_position), color = "darkgreen", linewidth = 1) +
-    geom_point(aes(y = mean_position), color = "darkgreen") +
-    geom_line(aes(y = median_position), color = "darkgreen", linewidth = 1, linetype = "dashed") +
+  # Year-level means swing a lot because few elections fall in any single
+  # year, so the loess line is fit on the underlying party-election
+  # observations (position_data), not on the yearly means -- the faint
+  # points show the yearly means only for reference.
+  p4b <- ggplot() +
+    geom_point(data = position_over_time, aes(x = Election_Year, y = mean_position),
+               color = "darkgreen", alpha = 0.35) +
+    geom_smooth(data = position_data, aes(x = Election_Year, y = miljø_afhængig),
+                method = "loess", formula = y ~ x, color = "darkgreen", fill = "darkgreen",
+                alpha = 0.15, linewidth = 1.2) +
     geom_hline(yintercept = 0, linetype = "dotted", color = "grey40") +
     labs(
       title = "Mainstream Party Environmental Position Over Time",
-      subtitle = "miljø_afhængig (log-ratio of pro-environment vs. pro-growth emphasis) -- the actual RDD outcome variable; solid = mean, dashed = median",
+      subtitle = "miljø_afhængig (log-ratio of pro-environment vs. pro-growth emphasis) -- the actual RDD outcome variable.\nLine: loess fit on all party-election observations, with 95% CI. Points: yearly means.",
       x = "Election Year",
       y = "Environmental Position (log-ratio)",
       caption = "Source: own calculations based on the Manifesto Project Dataset"
