@@ -1326,7 +1326,7 @@ results_df_h5_large <- run_rdd_robustness(
   bw_list = c(1, 1.5, 2, 2.5, 3),
   polynomials = c(1, 2, 3, 4),
   covariates = covariates_to_use,
-  group_label = "Store partier"
+  group_label = "Large Parties"
 )
 
 # Run the robustness analysis for small parties
@@ -1337,7 +1337,7 @@ results_df_h5_small <- run_rdd_robustness(
   bw_list = c(1, 1.5, 2, 2.5, 3),
   polynomials = c(1, 2, 3, 4),
   covariates = covariates_to_use,
-  group_label = "Små partier"
+  group_label = "Small Parties"
 )
 
 # Combine results for direct comparison
@@ -2856,14 +2856,14 @@ dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
 # 1. Basal deskriptiv statistik for nøglevariable ----------------
 
 stats_tabel <- data.frame(
-  Variabel = c(
-    "Klimaposition (miljø_afhængig)",
-    "Grønne partiers stemmeandel (centered_lagged_pervote_samlet)",
-    "Grønne partier i parlament (lagged_i_parlament)",
-    "Venstreorienteret parti (left_party_lag1)",
-    "Stort parti (large_party_lag1)"
+  Variable = c(
+    "Environmental position (miljø_afhængig)",
+    "Green party vote share, centred on threshold (centered_lagged_pervote_samlet)",
+    "Green party in parliament (lagged_i_parlament)",
+    "Left-wing mainstream party (left_party_lag1)",
+    "Large mainstream party (large_party_lag1)"
   ),
-  Gennemsnit = c(
+  Mean = c(
     mean(final_dataset$miljø_afhængig, na.rm = TRUE),
     mean(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     mean(final_dataset$lagged_i_parlament, na.rm = TRUE),
@@ -2877,7 +2877,7 @@ stats_tabel <- data.frame(
     median(final_dataset$left_party_lag1, na.rm = TRUE),
     median(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
-  Std_afvigelse = c(
+  SD = c(
     sd(final_dataset$miljø_afhængig, na.rm = TRUE),
     sd(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     sd(final_dataset$lagged_i_parlament, na.rm = TRUE),
@@ -2891,7 +2891,7 @@ stats_tabel <- data.frame(
     min(final_dataset$left_party_lag1, na.rm = TRUE),
     min(final_dataset$large_party_lag1, na.rm = TRUE)
   ),
-  Maksimum = c(
+  Maximum = c(
     max(final_dataset$miljø_afhængig, na.rm = TRUE),
     max(final_dataset$centered_lagged_pervote_samlet, na.rm = TRUE),
     max(final_dataset$lagged_i_parlament, na.rm = TRUE),
@@ -2908,14 +2908,14 @@ stats_tabel <- data.frame(
 )
 
 # Formatter tallene pænt
-stats_tabel$Gennemsnit <- round(stats_tabel$Gennemsnit, 3)
+stats_tabel$Mean <- round(stats_tabel$Mean, 3)
 stats_tabel$Median <- round(stats_tabel$Median, 3)
-stats_tabel$Std_afvigelse <- round(stats_tabel$Std_afvigelse, 3)
+stats_tabel$SD <- round(stats_tabel$SD, 3)
 stats_tabel$Minimum <- round(stats_tabel$Minimum, 3)
-stats_tabel$Maksimum <- round(stats_tabel$Maksimum, 3)
+stats_tabel$Maximum <- round(stats_tabel$Maximum, 3)
 
 tabel1 <- kable(stats_tabel, 
-               caption = "Tabel A1: Deskriptiv statistik for nøglevariable i datasættet",
+               caption = "Table A1: Descriptive statistics for key variables",
                format = "markdown")
 
 # Gem som markdown-fil
@@ -2929,18 +2929,18 @@ write.csv(stats_tabel, "Publisering Deskriptiv Statistik/tabel1_deskriptiv_stati
 land_stats <- final_dataset %>%
   group_by(countryname) %>%
   summarise(
-    Antal_obs = n(),
-    Første_år = min(edate, na.rm = TRUE),
-    Sidste_år = max(edate, na.rm = TRUE),
-    Antal_partier = n_distinct(party),
-    Grønne_i_parlament = sum(lagged_i_parlament, na.rm = TRUE),
-    Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3)
+    N_observations = n(),
+    First_election = min(edate, na.rm = TRUE),
+    Last_election = max(edate, na.rm = TRUE),
+    N_parties = n_distinct(party),
+    N_green_in_parliament = sum(lagged_i_parlament, na.rm = TRUE),
+    Mean_env_position = round(mean(miljø_afhængig, na.rm = TRUE), 3)
   ) %>%
-  arrange(desc(Antal_obs))
+  arrange(desc(N_observations))
 
 # Gem som markdown
 tabel2 <- kable(land_stats, 
-               caption = "Tabel A2: Oversigt over lande i datasættet",
+               caption = "Table A2: Overview of countries in the dataset",
                format = "markdown")
 
 writeLines(tabel2, "Publisering Deskriptiv Statistik/tabel2_land_oversigt.md")
@@ -2951,32 +2951,32 @@ if("parfam" %in% names(final_dataset)) {
   partifamilie_stats <- final_dataset %>%
     mutate(
       party_family = case_when(
-      parfam == "10" ~ "Grønne",
-      parfam == "20" ~ "Socialist/Andre venstreorienterede parties",
-      parfam == "30" ~ "Social Demokratiske",
-      parfam == "40" ~ "Liberale",
-      parfam == "50" ~ "Kristendemokratiske",
-      parfam == "60" ~ "Konservative",
-      parfam == "70" ~ "Nationalistiske",
-      parfam == "80" ~ "Agrarisk",
-      parfam == "90" ~ "Etniske/Regionale",
-      parfam == "95" ~ "Special emne partier",
-      parfam == "98" ~ "Valgalliance uden leder",
-      TRUE ~ "Andre"
+      parfam == "10" ~ "Green",
+      parfam == "20" ~ "Socialist/Other left",
+      parfam == "30" ~ "Social Democratic",
+      parfam == "40" ~ "Liberal",
+      parfam == "50" ~ "Christian Democratic",
+      parfam == "60" ~ "Conservative",
+      parfam == "70" ~ "Nationalist",
+      parfam == "80" ~ "Agrarian",
+      parfam == "90" ~ "Ethnic/Regional",
+      parfam == "95" ~ "Special issue",
+      parfam == "98" ~ "Electoral alliance",
+      TRUE ~ "Other"
       )
     ) %>%
     group_by(party_family) %>%
     summarise(
-      Antal_obs = n(),
-      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
-      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
-      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+      N_observations = n(),
+      Mean_env_position = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_env_position = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      SD_env_position = round(sd(miljø_afhængig, na.rm = TRUE), 3)
     ) %>%
-    arrange(desc(Gns_klimaposition))
+    arrange(desc(Mean_env_position))
   
   # Gem som markdown
   tabel3 <- kable(partifamilie_stats, 
-                 caption = "Tabel A3: Klimapositioner efter partifamilie",
+                 caption = "Table A3: Environmental position by party family",
                  format = "markdown")
   
   writeLines(tabel3, "Publisering Deskriptiv Statistik/tabel3_partifamilie_stats.md")
@@ -2993,16 +2993,16 @@ key_variables <- key_variables[key_variables %in% names(final_dataset)]
 
 # Antal og procent af missing values
 missing_stats <- data.frame(
-  Variabel = key_variables,
-  Antal_missing = sapply(final_dataset[, key_variables], function(x) sum(is.na(x))),
-  Procent_missing = round(sapply(final_dataset[, key_variables], function(x) mean(is.na(x)) * 100), 1)
+  Variable = key_variables,
+  N_missing = sapply(final_dataset[, key_variables], function(x) sum(is.na(x))),
+  Percent_missing = round(sapply(final_dataset[, key_variables], function(x) mean(is.na(x)) * 100), 1)
 )
 
-missing_stats <- missing_stats[order(-missing_stats$Procent_missing), ]
+missing_stats <- missing_stats[order(-missing_stats$Percent_missing), ]
 
 # Gem som markdown
 tabel4 <- kable(missing_stats, 
-               caption = "Tabel A4: Manglende værdier i nøglevariable",
+               caption = "Table A4: Missing values in key variables",
                format = "markdown")
 
 writeLines(tabel4, "Publisering Deskriptiv Statistik/tabel4_missing_data.md")
@@ -3016,15 +3016,15 @@ if(all(c("edate", "pervote_samlet", "i_parlament") %in% names(final_dataset))) {
   grønne_success_tid <- final_dataset %>%
     group_by(edate) %>%
     summarise(
-      grønne_partier = sum(!is.na(pervote_samlet)),
-      grønne_i_parlament = sum(i_parlament, na.rm = TRUE),
-      success_rate = grønne_i_parlament / grønne_partier
+      green_party_obs = sum(!is.na(pervote_samlet)),
+      green_in_parliament = sum(i_parlament, na.rm = TRUE),
+      success_rate = green_in_parliament / green_party_obs
     ) %>%
     filter(!is.na(success_rate))
   
   tabel5 <- kable(grønne_success_tid, 
-                 caption = "Tabel A5: Grønne partiers succesrate over tid",
-                 col.names = c("År", "Antal grønne partier", "Antal i parlament", "Succesrate"),
+                 caption = "Table A5: Green parties' success rate over time",
+                 col.names = c("Election date", "Green party observations", "In parliament", "Success rate"),
                  digits = 3,
                  format = "markdown")
   
@@ -3042,7 +3042,7 @@ p1 <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
   labs(
     title = "Distribution of Environmental Focus (miljø_afhængig)",
     x = "Environmental Focus",
-    y = "Amount"
+    y = "Count"
   ) +
   theme_minimal()
 
@@ -3080,10 +3080,10 @@ p3 <- ggplot(stemmeandel_tid, aes(x = edate)) +
   geom_line(aes(y = gns_stemmeandel), size = 1, color = "darkgreen") +
   geom_line(aes(y = median_stemmeandel), size = 1, color = "green", linetype = "dashed") +
   labs(
-    title = "Grønne partiers stemmeandel over tid",
-    x = "År",
-    y = "Stemmeandel (%)",
-    caption = "Kilde: Egne beregninger baseret på Manifesto Project Dataset"
+    title = "Green parties' vote share over time",
+    x = "Election date",
+    y = "Vote share (%)",
+    caption = "Source: own calculations based on the Manifesto Project Dataset"
   ) +
   theme_minimal()
 
@@ -3110,8 +3110,8 @@ write.csv(threshold_oversigt, "Publisering Deskriptiv Statistik/threshold_by_cou
 
 # Lav en pæn tabel med knitr
 tabel6 <- kable(threshold_oversigt, 
-               caption = "Tabel A6: Valggrænser (thresholds) efter land og år",
-               col.names = c("Land", "Valgdato", "Valggrænse (%)"),
+               caption = "Table A6: Effective electoral thresholds by country and election",
+               col.names = c("Country", "Election date", "Effective threshold (%)"),
                format = "markdown")
 
 # Gem som markdown-fil
@@ -3126,25 +3126,25 @@ if(exists("h1_analysis_data")) {
   h1_stats <- h1_analysis_data %>%
     group_by(lagged_i_parlament) %>%
     summarise(
-      Antal_obs = n(),
-      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
-      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
-      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3),
-      Min_klimaposition = round(min(miljø_afhængig, na.rm = TRUE), 3),
-      Max_klimaposition = round(max(miljø_afhængig, na.rm = TRUE), 3)
+      N_observations = n(),
+      Mean_env_position = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_env_position = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      SD_env_position = round(sd(miljø_afhængig, na.rm = TRUE), 3),
+      Min_env_position = round(min(miljø_afhængig, na.rm = TRUE), 3),
+      Max_env_position = round(max(miljø_afhængig, na.rm = TRUE), 3)
     ) %>%
     mutate(
-      Gruppe = case_when(
-        lagged_i_parlament == 0 ~ "Ingen grønne partier i parlament",
-        lagged_i_parlament == 1 ~ "Grønne partier i parlament",
-        TRUE ~ "Ukendt"
+      Group = case_when(
+        lagged_i_parlament == 0 ~ "No Green party in parliament",
+        lagged_i_parlament == 1 ~ "Green party in parliament",
+        TRUE ~ "Unknown"
       )
     ) %>%
-    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, 
-           Std_afv_klimaposition, Min_klimaposition, Max_klimaposition)
+    select(Group, N_observations, Mean_env_position, Median_env_position, 
+           SD_env_position, Min_env_position, Max_env_position)
   
   tabel7 <- kable(h1_stats,
-                 caption = "Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament",
+                 caption = "Table A7: Descriptive statistics for H1 - Green party in parliament",
                  format = "markdown")
   writeLines(tabel7, "Publisering Deskriptiv Statistik/tabel7_h1_stats.md")
   
@@ -3157,24 +3157,24 @@ if(exists("h4_analysis_data")) {
   h4_stats <- h4_analysis_data %>%
     group_by(left_party_lag1, lagged_i_parlament) %>%
     summarise(
-      Antal_obs = n(),
-      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
-      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
-      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+      N_observations = n(),
+      Mean_env_position = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_env_position = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      SD_env_position = round(sd(miljø_afhængig, na.rm = TRUE), 3)
     ) %>%
     mutate(
-      Gruppe = case_when(
-        left_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Højreorienteret parti, ingen grønne i parlament",
-        left_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Højreorienteret parti, grønne i parlament",
-        left_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Venstreorienteret parti, ingen grønne i parlament",
-        left_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Venstreorienteret parti, grønne i parlament",
-        TRUE ~ "Ukendt"
+      Group = case_when(
+        left_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Right-wing party, no Green party in parliament",
+        left_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Right-wing party, Green party in parliament",
+        left_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Left-wing party, no Green party in parliament",
+        left_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Left-wing party, Green party in parliament",
+        TRUE ~ "Unknown"
       )
     ) %>%
-    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+    select(Group, N_observations, Mean_env_position, Median_env_position, SD_env_position)
   
   tabel10 <- kable(h4_stats,
-                  caption = "Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier",
+                  caption = "Table A10: Descriptive statistics for H4 - Left- vs. right-wing mainstream parties",
                   format = "markdown")
   writeLines(tabel10, "Publisering Deskriptiv Statistik/tabel10_h4_stats.md")
   
@@ -3187,24 +3187,24 @@ if(exists("h5_analysis_data")) {
   h5_stats <- h5_analysis_data %>%
     group_by(large_party_lag1, lagged_i_parlament) %>%
     summarise(
-      Antal_obs = n(),
-      Gns_klimaposition = round(mean(miljø_afhængig, na.rm = TRUE), 3),
-      Median_klimaposition = round(median(miljø_afhængig, na.rm = TRUE), 3),
-      Std_afv_klimaposition = round(sd(miljø_afhængig, na.rm = TRUE), 3)
+      N_observations = n(),
+      Mean_env_position = round(mean(miljø_afhængig, na.rm = TRUE), 3),
+      Median_env_position = round(median(miljø_afhængig, na.rm = TRUE), 3),
+      SD_env_position = round(sd(miljø_afhængig, na.rm = TRUE), 3)
     ) %>%
     mutate(
-      Gruppe = case_when(
-        large_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Lille parti, ingen grønne i parlament",
-        large_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Lille parti, grønne i parlament",
-        large_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Stort parti, ingen grønne i parlament",
-        large_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Stort parti, grønne i parlament",
-        TRUE ~ "Ukendt"
+      Group = case_when(
+        large_party_lag1 == 0 & lagged_i_parlament == 0 ~ "Small party, no Green party in parliament",
+        large_party_lag1 == 0 & lagged_i_parlament == 1 ~ "Small party, Green party in parliament",
+        large_party_lag1 == 1 & lagged_i_parlament == 0 ~ "Large party, no Green party in parliament",
+        large_party_lag1 == 1 & lagged_i_parlament == 1 ~ "Large party, Green party in parliament",
+        TRUE ~ "Unknown"
       )
     ) %>%
-    select(Gruppe, Antal_obs, Gns_klimaposition, Median_klimaposition, Std_afv_klimaposition)
+    select(Group, N_observations, Mean_env_position, Median_env_position, SD_env_position)
   
   tabel11 <- kable(h5_stats,
-                  caption = "Tabel A11: Deskriptiv statistik for H5 - Store partier",
+                  caption = "Table A11: Descriptive statistics for H5 - Large vs. small mainstream parties",
                   format = "markdown")
   writeLines(tabel11, "Publisering Deskriptiv Statistik/tabel11_h5_stats.md")
 
@@ -3217,16 +3217,16 @@ if(exists("h5_analysis_data")) {
 if("large_party_lag1" %in% names(final_dataset)) {
   case_distribution_size <- final_dataset %>%
     filter(!is.na(large_party_lag1)) %>%
-    mutate(Størrelse = ifelse(large_party_lag1 == 1, "Stort mainstreamparti", "Lille mainstreamparti")) %>%
-    group_by(Størrelse) %>%
+    mutate(Size = ifelse(large_party_lag1 == 1, "Large mainstream party", "Small mainstream party")) %>%
+    group_by(Size) %>%
     summarise(
-      Antal_partiobservationer = n(),
-      Antal_unikke_partier = n_distinct(party),
+      N_party_observations = n(),
+      N_unique_parties = n_distinct(party),
       .groups = "drop"
     )
 
   tabel12 <- kable(case_distribution_size,
-                 caption = "Tabel A12: Antal store vs. små mainstreampartier i datasættet",
+                 caption = "Table A12: Number of large vs. small mainstream parties in the dataset",
                  format = "markdown")
   writeLines(tabel12, "Publisering Deskriptiv Statistik/tabel12_case_distribution_size.md")
   write.csv(case_distribution_size, "Publisering Deskriptiv Statistik/tabel12_case_distribution_size.csv", row.names = FALSE)
@@ -3248,15 +3248,15 @@ if(all(c("edate", "i_parlament") %in% names(final_dataset))) {
     mutate(Decade = floor(Election_Year / 10) * 10) %>%
     group_by(Decade) %>%
     summarise(
-      Antal_observationer = n(),
-      Antal_lande = n_distinct(countryname),
-      Grønne_i_parlament_andel = round(mean(i_parlament, na.rm = TRUE), 3),
+      N_observations = n(),
+      N_countries = n_distinct(countryname),
+      Share_green_in_parliament = round(mean(i_parlament, na.rm = TRUE), 3),
       .groups = "drop"
     )
 
   tabel13 <- kable(case_distribution_decade,
-                 caption = "Tabel A13: Antal observationer og grønne partiers parlaments-andel efter årti",
-                 col.names = c("Årti", "Antal observationer", "Antal lande", "Andel grønne i parlament"),
+                 caption = "Table A13: Observations and share with a Green party in parliament, by decade",
+                 col.names = c("Decade", "Observations", "Countries", "Share with Green party in parliament"),
                  format = "markdown")
   writeLines(tabel13, "Publisering Deskriptiv Statistik/tabel13_case_distribution_decade.md")
   write.csv(case_distribution_decade, "Publisering Deskriptiv Statistik/tabel13_case_distribution_decade.csv", row.names = FALSE)
@@ -3313,7 +3313,7 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
                    formation_to_entry_lag_years, source_note)
 
   tabel14 <- kable(formation_to_entry_lag,
-                 caption = "Tabel A14: Green party formation-to-parliament-entry lag (partial, country-level, source: van Haute ed., Table 15.1)",
+                 caption = "Table A14: Green party formation-to-parliament-entry lag (partial, country-level, source: van Haute ed., Table 15.1)",
                  format = "markdown")
   writeLines(tabel14, "Publisering Deskriptiv Statistik/tabel14_formation_to_entry_lag.md")
   print(tabel14)
@@ -3426,9 +3426,9 @@ if (all(c("per410", "per416", "per501", "edate") %in% names(final_dataset))) {
   if ("lagged_i_parlament" %in% names(salience_data)) {
     salience_by_green_status <- salience_data %>%
       filter(!is.na(lagged_i_parlament)) %>%
-      mutate(Green_i_parlament = ifelse(lagged_i_parlament == 1, "Green party in parliament",
+      mutate(Green_party_status = ifelse(lagged_i_parlament == 1, "Green party in parliament",
                                          "No Green party in parliament")) %>%
-      group_by(Green_i_parlament) %>%
+      group_by(Green_party_status) %>%
       summarise(
         gns_salience = round(mean(environmental_salience, na.rm = TRUE), 3),
         median_salience = round(median(environmental_salience, na.rm = TRUE), 3),
@@ -3437,7 +3437,7 @@ if (all(c("per410", "per416", "per501", "edate") %in% names(final_dataset))) {
       )
 
     tabel15 <- kable(salience_by_green_status,
-                   caption = "Tabel A15: Environmental salience among mainstream parties, by Green party parliamentary status",
+                   caption = "Table A15: Environmental salience among mainstream parties, by Green party parliamentary status",
                    format = "markdown")
     writeLines(tabel15, "Publisering Deskriptiv Statistik/tabel15_salience_by_green_status.md")
     print(tabel15)
@@ -3508,73 +3508,73 @@ if (all(c("miljø_afhængig", "edate") %in% names(final_dataset))) {
 # 11. Samlet tabel -----
 # Lav en samlet dokument med alle tabeller
 tabeller_samlet <- c(
-  "# Deskriptiv statistik\n\n",
-  "## Tabel A1: Deskriptiv statistik for nøglevariable\n\n",
+  "# Descriptive statistics\n\n",
+  "## Table A1: Descriptive statistics for key variables\n\n",
   tabel1,
-  "\n\n## Tabel A2: Oversigt over lande i datasættet\n\n",
+  "\n\n## Table A2: Overview of countries in the dataset\n\n",
   tabel2
 )
 
 if(exists("tabel3")) {
   tabeller_samlet <- c(tabeller_samlet, 
-                     "\n\n## Tabel A3: Klimapositioner efter partifamilie\n\n",
+                     "\n\n## Table A3: Environmental position by party family\n\n",
                      tabel3)
 }
 
 tabeller_samlet <- c(tabeller_samlet,
-                   "\n\n## Tabel A4: Manglende værdier i nøglevariable\n\n",
+                   "\n\n## Table A4: Missing values in key variables\n\n",
                    tabel4)
 
 if(exists("tabel5")) {
   tabeller_samlet <- c(tabeller_samlet, 
-                     "\n\n## Tabel A5: Grønne partiers succesrate over tid\n\n",
+                     "\n\n## Table A5: Green parties' success rate over time\n\n",
                      tabel5)
 }
 
 tabeller_samlet <- c(tabeller_samlet,
-                   "\n\n## Tabel A6: Valggrænser (thresholds) efter land og år\n\n",
+                   "\n\n## Table A6: Effective electoral thresholds by country and election\n\n",
                    tabel6)
 
 # Tilføj de nye tabeller hvis de eksisterer
 if(exists("tabel7")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A7: Deskriptiv statistik for H1 - Grønne partier i parlament\n\n",
+                     "\n\n## Table A7: Descriptive statistics for H1 - Green party in parliament\n\n",
                      tabel7)
 }
 
 if(exists("tabel9")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A9: Deskriptiv statistik for H3 - Økonomiske forhold\n\n",
+                     "\n\n## Table A9: Descriptive statistics for H3 - Economic conditions\n\n",
                      tabel9)
 }
 
 if(exists("tabel9b")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A9b: Deskriptiv statistik for H3 - BNP-vækst\n\n",
+                     "\n\n## Table A9b: Descriptive statistics for H3 - GDP growth\n\n",
                      tabel9b)
 }
 
 if(exists("tabel10")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A10: Deskriptiv statistik for H4 - Venstreorienterede partier\n\n",
+                     "\n\n## Table A10: Descriptive statistics for H4 - Left- vs. right-wing mainstream parties\n\n",
                      tabel10)
 }
 
 if(exists("tabel11")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A11: Deskriptiv statistik for H5 - Store partier\n\n",
+                     "\n\n## Table A11: Descriptive statistics for H5 - Large vs. small mainstream parties\n\n",
                      tabel11)
 }
 
 if(exists("tabel12")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A12: Antal store vs. små mainstreampartier\n\n",
+                     "\n\n## Table A12: Number of large vs. small mainstream parties\n\n",
                      tabel12)
 }
 
 if(exists("tabel13")) {
   tabeller_samlet <- c(tabeller_samlet,
-                     "\n\n## Tabel A13: Case-fordeling efter årti\n\n",
+                     "\n\n## Table A13: Observations by decade\n\n",
                      tabel13)
 }
 
@@ -3582,11 +3582,11 @@ if(exists("tabel13")) {
 writeLines(tabeller_samlet, "Publisering Deskriptiv Statistik/alle_tabeller.md")
 
 # Bekræft at filerne er blevet gemt
-liste_filer <- list.files("Deskriptiv Statistik", full.names = TRUE)
+liste_filer <- list.files("Publisering Deskriptiv Statistik", full.names = TRUE)
 print(liste_filer)
 
 # Afsluttende besked
-cat("\nDeskriptiv statistik er nu gemt i mappen 'Deskriptiv Statistik'.\n")
-cat("Der er genereret både markdown (.md) og csv-filer samt visualiseringer (.png).\n")
+cat("\nDescriptive statistics saved to 'Publisering Deskriptiv Statistik'.\n")
+cat("Markdown (.md) and csv tables plus figures (.png) were generated.\n")
 ```
 
