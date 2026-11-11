@@ -1192,7 +1192,7 @@ small_parties_old <- subset(h5_analysis_data, large_party_alt_lag1 == 0)
 # actually looks like in practice, not just which side of the median a party
 # falls on.
 party_size_summary <- data.frame(
-  Group = c("Whole Sample", "Large Parties (large_party_lag1 == 1)", "Small Parties (large_party_lag1 == 0)"),
+  Group = c("Whole Sample", "Large mainstream parties", "Small mainstream parties"),
   Mean_Vote_Share = round(c(mean(h5_analysis_data$pervote_main, na.rm = TRUE),
                              mean(large_parties$pervote_main, na.rm = TRUE),
                              mean(small_parties$pervote_main, na.rm = TRUE)), 1),
@@ -2073,7 +2073,7 @@ write.csv(h5_cultural_results, "Publisering Analyse/Cultural/Publisering h5_cult
 
 # Side-by-side comparison: environmental vs. cultural-liberalism main effect ----
 domain_comparison <- data.frame(
-  Domain = c("Environmental (miljø_afhængig)", "Cultural Liberalism (kultur_afhaengig)"),
+  Domain = c("Environmental position (per416+per501 vs. per410)", "Cultural liberalism (per607 vs. per608)"),
   LATE = round(c(safe_val(h1_rdd, "Estimate"), safe_val(h1_rdd_cultural, "Estimate")), 3),
   StdError = round(c(safe_val(h1_rdd, "se"), safe_val(h1_rdd_cultural, "se")), 3),
   pvalue = round(c(safe_val(h1_rdd, "pv"), safe_val(h1_rdd_cultural, "pv")), 3),
@@ -2274,8 +2274,8 @@ write.csv(h5_rights_results, "Publisering Analyse/Rights/Publisering h5_rights_r
 
 # Side-by-side: environmental vs. cultural vs. minority-rights main effect ----
 domain_comparison_rights <- data.frame(
-  Domain = c("Environmental (miljø_afhængig)", "Cultural Liberalism (kultur_afhaengig)",
-             "Minority Rights (rettigheder_afhaengig_alt)"),
+  Domain = c("Environmental position (per416+per501 vs. per410)", "Cultural liberalism (per607 vs. per608)",
+             "Minority rights (per705 vs. per608)"),
   LATE = round(c(safe_val(h1_rdd, "Estimate"), safe_val(h1_rdd_cultural, "Estimate"), safe_val(h1_rdd_rights, "Estimate")), 3),
   StdError = round(c(safe_val(h1_rdd, "se"), safe_val(h1_rdd_cultural, "se"), safe_val(h1_rdd_rights, "se")), 3),
   pvalue = round(c(safe_val(h1_rdd, "pv"), safe_val(h1_rdd_cultural, "pv"), safe_val(h1_rdd_rights, "pv")), 3),
@@ -2914,11 +2914,11 @@ dir.create("Publisering Deskriptiv Statistik", showWarnings = FALSE)
 
 stats_tabel <- data.frame(
   Variable = c(
-    "Environmental position (miljø_afhængig)",
-    "Green party vote share, centred on threshold (centered_lagged_pervote_samlet)",
-    "Green party in parliament (lagged_i_parlament)",
-    "Left-wing mainstream party (left_party_lag1)",
-    "Large mainstream party (large_party_lag1)"
+    "Environmental position (log ratio)",
+    "Green party vote share at t-1, centred on threshold",
+    "Green party in parliament at t-1 (share)",
+    "Left-wing mainstream party (share)",
+    "Large mainstream party (share)"
   ),
   Mean = c(
     mean(final_dataset$miljø_afhængig, na.rm = TRUE),
@@ -3050,7 +3050,13 @@ key_variables <- key_variables[key_variables %in% names(final_dataset)]
 
 # Antal og procent af missing values
 missing_stats <- data.frame(
-  Variable = key_variables,
+  Variable = unname(c(miljø_afhængig = "Environmental position (log ratio)",
+                      centered_lagged_pervote_samlet = "Green party vote share at t-1, centred on threshold",
+                      lagged_i_parlament = "Green party in parliament at t-1",
+                      left_party_lag1 = "Left-wing mainstream party",
+                      large_party_lag1 = "Large mainstream party",
+                      good_economy_lag1 = "Above-median GDP per capita at t-1",
+                      GDP_per_capita_lag1 = "GDP per capita at t-1")[key_variables]),
   N_missing = sapply(final_dataset[, key_variables], function(x) sum(is.na(x))),
   Percent_missing = round(sapply(final_dataset[, key_variables], function(x) mean(is.na(x)) * 100), 1)
 )
@@ -3097,7 +3103,7 @@ p1 <- ggplot(final_dataset, aes(x = miljø_afhængig)) +
   geom_histogram(bins = 30, fill = "steelblue", color = "darkblue", alpha = 0.7) +
   geom_density(color = "red", size = 1) +
   labs(
-    title = "Distribution of Environmental Focus (miljø_afhængig)",
+    title = "Distribution of Mainstream Party Environmental Position",
     x = "Environmental Focus",
     y = "Count"
   ) +
@@ -3544,9 +3550,9 @@ if (all(c("miljø_afhængig", "edate") %in% names(final_dataset))) {
     geom_hline(yintercept = 0, linetype = "dotted", color = "grey40") +
     labs(
       title = "Mainstream Party Environmental Position Over Time",
-      subtitle = "miljø_afhængig (log-ratio of pro-environment vs. pro-growth emphasis) -- the actual RDD outcome variable.\nLine: loess fit on all party-election observations, with 95% CI. Points: yearly means.",
+      subtitle = "Log ratio of pro-environmental (per416 + per501) to pro-growth (per410) emphasis.\nLine: loess fit on all party-election observations, with 95% CI. Points: yearly means.",
       x = "Election Year",
-      y = "Environmental Position (log-ratio)",
+      y = "Environmental position (log ratio)",
       caption = "Source: own calculations based on the Manifesto Project Dataset"
     ) +
     theme_minimal()
