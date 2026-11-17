@@ -2813,6 +2813,49 @@ alt_dv_results <- alt_dv_results[, c("Group", "Outcome_variable", "Approach", "P
                                      "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
 write.csv(alt_dv_results, "Publisering Analyse/AC&K Replication/ack_alternative_dv_results.csv", row.names = FALSE)
 
+# Paste-ready appendix tables in the same layout as Table 1 in the manuscript
+# (LATE | St. Err. | Bandwidth | Polynomial | p | Approach | N < c | N >= c),
+# so nothing has to be renamed by hand in Word. The pooled H1 rows are left out
+# of the subgroup table because they are Table 1.
+format_appendix_table <- function(res, group_labels) {
+  out <- data.frame(
+    Group      = unname(group_labels[res$Group]),
+    LATE       = sprintf("%.3f", res$LATE),
+    SE         = sprintf("%.3f", res$StdError),
+    Bandwidth  = ifelse(is.na(res$Bandwidth), "–", sprintf("%.3f", res$Bandwidth)),
+    Polynomial = res$Polynomial,
+    p          = sprintf("%.3f", res$pvalue),
+    Approach   = res$Approach,
+    N_below    = res$N_below_c,
+    N_above    = res$N_above_c,
+    stringsAsFactors = FALSE
+  )
+  names(out) <- c("Group", "LATE", "St. Err.", "Bandwidth", "Polynomial", "p",
+                  "Approach", "N < c", "N ≥ c")
+  stopifnot(!anyNA(out$Group))
+  out
+}
+
+subgroup_labels <- c(
+  "H4 (Right-Wing)"    = "Right-wing mainstream parties",
+  "H4 (Left-Wing)"     = "Left-wing mainstream parties",
+  "H5 (Large Parties)" = "Large mainstream parties",
+  "H5 (Small Parties)" = "Small mainstream parties"
+)
+appendix_subgroups <- format_appendix_table(
+  subset(ack_replication_results, Group %in% names(subgroup_labels)), subgroup_labels)
+
+altdv_labels <- setNames(sapply(alt_dv_specs, `[[`, "label"), sapply(alt_dv_specs, `[[`, "label"))
+appendix_altdv <- format_appendix_table(alt_dv_results, altdv_labels)
+names(appendix_altdv)[1] <- "Outcome"
+
+knitr::kable(appendix_subgroups, caption = "Appendix: effect by party ideology and size")
+knitr::kable(appendix_altdv, caption = "Appendix: alternative dependent variables")
+write.csv(appendix_subgroups, "Publisering Analyse/AC&K Replication/appendix_table_subgroups.csv",
+          row.names = FALSE, fileEncoding = "UTF-8")
+write.csv(appendix_altdv, "Publisering Analyse/AC&K Replication/appendix_table_alternative_dvs.csv",
+          row.names = FALSE, fileEncoding = "UTF-8")
+
 alt_dv_plot_data <- subset(alt_dv_results, Polynomial == 1)
 alt_dv_plot_data$CI_Lower <- alt_dv_plot_data$LATE - 1.96 * alt_dv_plot_data$StdError
 alt_dv_plot_data$CI_Upper <- alt_dv_plot_data$LATE + 1.96 * alt_dv_plot_data$StdError
