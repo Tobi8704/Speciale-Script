@@ -2733,6 +2733,69 @@ write.csv(ack_h1_gdp_balance,
           "Publisering Analyse/AC&K Replication/ack_h1_gdp_balance_check.csv", row.names = FALSE)
 ```
 
+```{r ack_alternative_dvs, cache=TRUE}
+# Alternative dependent variables for the appendix figure (Peter's request):
+# Environmental Protection: Positive (per501, % of quasi-sentences) and
+# Cultural Liberalism (log[(per607+0.5)/(per608+0.5)]), estimated with the
+# same Abou-Chadi & Krause specification as Table 1, so "similar results"
+# compares like with like. The figure carries no title or internal variable
+# names -- the explanatory note is printed below for pasting under the figure.
+alt_dv_specs <- list(
+  list(var = "per501",           label = "Environmental Protection: Positive"),
+  list(var = "kultur_afhaengig", label = "Cultural Liberalism")
+)
+
+alt_dv_results <- do.call(rbind, lapply(alt_dv_specs, function(s) {
+  d <- final_dataset[complete.cases(final_dataset[, c(
+    s$var, "centered_lagged_pervote_samlet", "lagged_i_parlament",
+    "country", "edate", "party"
+  )]), ]
+  r <- ack_replicate(d, s$label, outcome_var = s$var)
+  r$Outcome_variable <- s$var
+  r
+}))
+alt_dv_results <- alt_dv_results[, c("Group", "Outcome_variable", "Approach", "Polynomial", "Bandwidth",
+                                     "LATE", "StdError", "pvalue", "N_below_c", "N_above_c")]
+write.csv(alt_dv_results, "Publisering Analyse/AC&K Replication/ack_alternative_dv_results.csv", row.names = FALSE)
+
+alt_dv_plot_data <- subset(alt_dv_results, Polynomial == 1)
+alt_dv_plot_data$CI_Lower <- alt_dv_plot_data$LATE - 1.96 * alt_dv_plot_data$StdError
+alt_dv_plot_data$CI_Upper <- alt_dv_plot_data$LATE + 1.96 * alt_dv_plot_data$StdError
+alt_dv_plot_data$Group <- factor(alt_dv_plot_data$Group, levels = sapply(alt_dv_specs, `[[`, "label"))
+
+# The two outcomes are on different scales (percentage of quasi-sentences
+# vs. log ratio), so each gets its own panel and x-axis rather than sharing one.
+alt_dv_plot <- ggplot(alt_dv_plot_data, aes(x = LATE, y = Group)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_pointrange(aes(xmin = CI_Lower, xmax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.6) +
+  facet_wrap(~ Group, ncol = 1, scales = "free") +
+  labs(x = "Estimated effect of Green party entry (LATE)", y = NULL) +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.text = element_text(hjust = 0, face = "bold", size = 11))
+
+print(alt_dv_plot)
+ggsave("Publisering Analyse/AC&K Replication/alternative_dv_plot.png", alt_dv_plot, width = 8, height = 4.5, dpi = 300)
+
+p501 <- alt_dv_plot_data[alt_dv_plot_data$Outcome_variable == "per501", ]
+pcul <- alt_dv_plot_data[alt_dv_plot_data$Outcome_variable == "kultur_afhaengig", ]
+alt_dv_note <- sprintf(paste0(
+  "Note: Points show the estimated local average treatment effect (LATE) of a Green party's parliamentary entry ",
+  "at election t-1 on mainstream parties' manifestos at election t; horizontal lines show 95%% confidence intervals. ",
+  "Estimates follow the specification in Table 1 (Abou-Chadi and Krause 2020): local linear regression (polynomial of order 1) ",
+  "with triangular kernel weights within the Imbens-Kalyanaraman optimal bandwidth, country fixed effects, and standard errors ",
+  "clustered by party and election date. Environmental Protection: Positive is the percentage of manifesto quasi-sentences ",
+  "coded per501 (LATE = %.2f, SE = %.2f, p = %.2f; bandwidth = %.2f; N = %d). Cultural Liberalism is ",
+  "log[(per607 + 0.5)/(per608 + 0.5)] (LATE = %.2f, SE = %.2f, p = %.2f; bandwidth = %.2f; N = %d). ",
+  "Because the two outcomes are measured on different scales, they are shown in separate panels. ",
+  "Estimates for all four polynomial specifications are reported in Appendix Table A#."),
+  p501$LATE, p501$StdError, p501$pvalue, p501$Bandwidth, as.integer(p501$N_below_c + p501$N_above_c),
+  pcul$LATE, pcul$StdError, pcul$pvalue, pcul$Bandwidth, as.integer(pcul$N_below_c + pcul$N_above_c))
+cat("\n", alt_dv_note, "\n")
+writeLines(alt_dv_note, "Publisering Analyse/AC&K Replication/alternative_dv_plot_note.txt")
+```
+
 # ============================================================================
 # 9b. SUBSTANTIVE MAGNITUDE BENCHMARKING (Reviewer 3)
 # ============================================================================
