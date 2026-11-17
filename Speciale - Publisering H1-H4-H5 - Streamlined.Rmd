@@ -360,7 +360,7 @@ h1_plot_rdd <- plot_rdd(
   x_limit = 10,
   x_label = "Green Party Vote Share (Centered on Cut-off)",
   y_label = "Environmental Focus",
-  title = "Effect of Green Party Entry on Mainstream Environmental Focus"
+  title = NULL
 )
 
 # Save the plot
@@ -920,7 +920,7 @@ h4_plot_right <- plot_rdd(
   x_limit = 10,
   x_label = "Green Party Vote Share (Centered on Cut-off)",
   y_label = "Environmental Focus",
-  title = "Effect of Green Party Entry on Right-Wing Parties"
+  title = "Right-wing mainstream parties"
 )
 print(h4_plot_right)
 
@@ -933,15 +933,14 @@ h4_plot_left <- plot_rdd(
   x_limit = 10,
   x_label = "Green Party Vote Share (Centered on Cut-off)",
   y_label = "Environmental Focus",
-  title = "Effect of Green Party Entry on Left-Wing Parties"
+  title = "Left-wing mainstream parties"
 )
 print(h4_plot_left)
 
 # Først gemmer det kombinerede plot i en variabel
 combined_plot_h4 <- grid.arrange(h4_plot_left,h4_plot_right,
              ncol = 2,
-             widths = c(1, 1),
-             top = "Comparison of Green Party Effect on Left/Right Parties")
+             widths = c(1, 1))
 
 # Derefter bruger ggsave til at gemme plottet
 ggsave("Publisering Analyse/H4/Publisering comparison_green_party_hv_effect.png", combined_plot_h4, width = 12, height = 6)
@@ -1165,7 +1164,7 @@ h5_large_plot <- plot_rdd(
   x_limit = 10,
   x_label = "Green Party Vote Share (Centered on Cut-off)",
   y_label = "Environmental Focus",
-  title = "Effect of Green Party Entry on Large Mainstream Parties"
+  title = "Large mainstream parties"
 )
 print(h5_large_plot)
 
@@ -1178,14 +1177,13 @@ h5_small_plot <- plot_rdd(
   x_limit = 10,
   x_label = "Green Party Vote Share (Centered on Cut-off)",
   y_label = "Environmental Focus",
-  title = "Effect of Green Party Entry on Small Mainstream Parties"
+  title = "Small mainstream parties"
 )
 print(h5_small_plot)
 
 combined_plot_stor_lille <- grid.arrange(h5_large_plot, h5_small_plot, 
              ncol = 2,
-             widths = c(1, 1),
-             top = "Comparison of Green Party Effect on Large/Small Mainstream Parties")
+             widths = c(1, 1))
 
 # Derefter bruger ggsave til at gemme plottet
 ggsave("Publisering Analyse/H5/Publisering comparison_green_party_stor_lille_effect.png", combined_plot_stor_lille, width = 12, height = 6)
@@ -3414,18 +3412,19 @@ if (all(c("countryname", "edate", "i_parlament") %in% names(final_dataset))) {
     geom_point(data = diff_year_data, aes(x = first_entry_year, color = "First parliamentary entry"), size = 3) +
     geom_point(data = same_year_data, aes(x = origin_year, color = "Formation = entry (same year)"),
                shape = 18, size = 5) +
-    ggrepel::geom_text_repel(data = diff_year_data, aes(x = origin_year, label = origin_year),
-                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
-    ggrepel::geom_text_repel(data = diff_year_data, aes(x = first_entry_year, label = first_entry_year),
-                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
-    ggrepel::geom_text_repel(data = same_year_data, aes(x = origin_year, label = origin_year),
-                              size = 3, seed = 42, min.segment.length = Inf, max.overlaps = Inf) +
+    # Formation year to the left of its point, entry year to the right, so the
+    # two labels can never overlap even when the years are adjacent.
+    geom_text(data = diff_year_data, aes(x = origin_year, label = origin_year),
+              hjust = 1, nudge_x = -0.7, size = 3) +
+    geom_text(data = diff_year_data, aes(x = first_entry_year, label = first_entry_year),
+              hjust = 0, nudge_x = 0.7, size = 3) +
+    geom_text(data = same_year_data, aes(x = origin_year, label = origin_year),
+              hjust = 0, nudge_x = 0.9, size = 3) +
+    scale_x_continuous(expand = expansion(add = 4)) +
     scale_color_manual(values = c("Party formation" = "darkgreen", "First parliamentary entry" = "steelblue",
                                    "Formation = entry (same year)" = "purple")) +
     scale_y_discrete(expand = expansion(add = c(0.6, 1.0))) +
     labs(
-      title = "Green Party Formation to Parliamentary Entry: Timeline",
-      subtitle = "Each segment spans a country's green-party formation/breakthrough year to its first election with parliamentary seats",
       x = "Year", y = NULL, color = NULL
     ) +
     theme_minimal() +
@@ -3555,11 +3554,8 @@ if (all(c("miljø_afhængig", "edate") %in% names(final_dataset))) {
                 alpha = 0.15, linewidth = 1.2) +
     geom_hline(yintercept = 0, linetype = "dotted", color = "grey40") +
     labs(
-      title = "Mainstream Party Environmental Position Over Time",
-      subtitle = "Log ratio of pro-environmental (per416 + per501) to pro-growth (per410) emphasis.\nLine: loess fit on all party-election observations, with 95% CI. Points: yearly means.",
       x = "Election Year",
-      y = "Environmental position (log ratio)",
-      caption = "Source: own calculations based on the Manifesto Project Dataset"
+      y = "Environmental position (log ratio)"
     ) +
     theme_minimal()
 
