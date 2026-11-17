@@ -2861,21 +2861,22 @@ alt_dv_plot_data$CI_Lower <- alt_dv_plot_data$LATE - 1.96 * alt_dv_plot_data$Std
 alt_dv_plot_data$CI_Upper <- alt_dv_plot_data$LATE + 1.96 * alt_dv_plot_data$StdError
 alt_dv_plot_data$Group <- factor(alt_dv_plot_data$Group, levels = sapply(alt_dv_specs, `[[`, "label"))
 
-# The two outcomes are on different scales (percentage of quasi-sentences
-# vs. log ratio), so each gets its own panel and x-axis rather than sharing one.
+# One panel with a shared x-axis, so both estimates line up on the same zero
+# line (Peter's request). The outcomes are on different scales (percentage of
+# quasi-sentences vs. log ratio) -- the note says so.
 alt_dv_plot <- ggplot(alt_dv_plot_data, aes(x = LATE, y = Group)) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
   geom_pointrange(aes(xmin = CI_Lower, xmax = CI_Upper), color = "darkgreen", linewidth = 1, size = 0.6) +
-  facet_wrap(~ Group, ncol = 1, scales = "free") +
+  scale_y_discrete(limits = rev(levels(alt_dv_plot_data$Group))) +
   labs(x = "Estimated effect of Green party entry (LATE)", y = NULL) +
   theme_minimal() +
-  theme(axis.text.y = element_blank(),
-        plot.margin = margin(t = 5, r = 15, b = 5, l = 15),
+  theme(axis.text.y = element_text(size = 11, color = "black"),
+        plot.margin = margin(t = 5, r = 15, b = 5, l = 5),
         panel.grid.minor = element_blank(),
-        strip.text = element_text(hjust = 0, face = "bold", size = 11))
+        panel.grid.major.y = element_blank())
 
 print(alt_dv_plot)
-ggsave("Publisering Analyse/AC&K Replication/alternative_dv_plot.png", alt_dv_plot, width = 8, height = 4.5, dpi = 300)
+ggsave("Publisering Analyse/AC&K Replication/alternative_dv_plot.png", alt_dv_plot, width = 8, height = 3, dpi = 300)
 
 p501 <- alt_dv_plot_data[alt_dv_plot_data$Outcome_variable == "per501", ]
 pcul <- alt_dv_plot_data[alt_dv_plot_data$Outcome_variable == "kultur_afhaengig", ]
@@ -2887,8 +2888,8 @@ alt_dv_note <- sprintf(paste0(
   "clustered by party and election date. Environmental Protection: Positive is the percentage of manifesto quasi-sentences ",
   "coded per501 (LATE = %.2f, SE = %.2f, p = %.2f; bandwidth = %.2f; N = %d). Cultural Liberalism is ",
   "log[(per607 + 0.5)/(per608 + 0.5)] (LATE = %.2f, SE = %.2f, p = %.2f; bandwidth = %.2f; N = %d). ",
-  "Because the two outcomes are measured on different scales, they are shown in separate panels. ",
-  "Estimates for all four polynomial specifications are reported in Appendix Table A#."),
+  "Note that the two outcomes are measured on different scales, so the size of the estimates is not directly comparable. ",
+  "Estimates for all four polynomial specifications are reported in Appendix Table A5."),
   p501$LATE, p501$StdError, p501$pvalue, p501$Bandwidth, as.integer(p501$N_below_c + p501$N_above_c),
   pcul$LATE, pcul$StdError, pcul$pvalue, pcul$Bandwidth, as.integer(pcul$N_below_c + pcul$N_above_c))
 cat("\n", alt_dv_note, "\n")
