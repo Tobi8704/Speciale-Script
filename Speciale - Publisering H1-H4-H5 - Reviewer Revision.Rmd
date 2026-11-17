@@ -2827,6 +2827,7 @@ alt_dv_plot <- ggplot(alt_dv_plot_data, aes(x = LATE, y = Group)) +
   labs(x = "Estimated effect of Green party entry (LATE)", y = NULL) +
   theme_minimal() +
   theme(axis.text.y = element_blank(),
+        plot.margin = margin(t = 5, r = 15, b = 5, l = 15),
         panel.grid.minor = element_blank(),
         strip.text = element_text(hjust = 0, face = "bold", size = 11))
 
@@ -2938,6 +2939,24 @@ substantive_magnitude_table$Magnitude_Classification <- with(substantive_magnitu
 print(substantive_magnitude_table)
 write.csv(substantive_magnitude_table,
           "Publisering Analyse/AC&K Replication/substantive_magnitude_table.csv", row.names = FALSE)
+
+# Paste-ready note for the appendix version of this table (Table A3).
+# Describes exactly what compute_election_to_election_volatility() and
+# benchmark_row() compute, so the note cannot drift from the numbers.
+bm <- setNames(ack_LATE_benchmarks$ACK_Published_LATE, ack_LATE_benchmarks$Group)
+magnitude_note <- sprintf(paste0(
+  "Note: LATE is the polynomial-1 estimate from the specification in Table 1 (Abou-Chadi and Krause 2020); ",
+  "none of the estimates is statistically significant. Implied %% change is (exp(LATE) - 1) x 100, i.e. the change in the ",
+  "ratio of pro-environmental to pro-growth emphasis. Control mean is the mean environmental focus among observations ",
+  "without a Green party in parliament at t-1 in the respective group. LATE (SD units) divides the LATE by the standard ",
+  "deviation of parties' absolute election-to-election change in environmental focus within the respective group. ",
+  "%% of ACK benchmark relates the LATE to the corresponding polynomial-1 estimate for radical right parties in Abou-Chadi ",
+  "and Krause (2020): %.3f for all mainstream parties (their Table 2), %.3f for left-wing (Table 3) and %.3f for right-wing ",
+  "mainstream parties (Table 4); they do not estimate effects by party size (-). Magnitude classifies the absolute LATE in ",
+  "SD units: below 0.5 = within normal election-to-election noise; 0.5 to 1.5 = modest; 1.5 to 2.5 = moderate; above 2.5 = large."),
+  bm[["H1 (Pooled)"]], bm[["H4 (Left-Wing)"]], bm[["H4 (Right-Wing)"]])
+cat("\n", magnitude_note, "\n")
+writeLines(magnitude_note, "Publisering Analyse/AC&K Replication/substantive_magnitude_note.txt")
 
 # Visual: each LATE against a shaded band for its subgroup's normal
 # election-to-election volatility (+/-1 SD), with AC&K's own benchmark LATE
